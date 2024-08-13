@@ -1,5 +1,6 @@
 """ 
-Removes trees from the ensemble. Useful for iterative +  parallelization
+Pad the trees to ensure all leaves are at a minimum depth or directly make the trees
+perfect.
 """
 
 from xdsl.context import MLContext

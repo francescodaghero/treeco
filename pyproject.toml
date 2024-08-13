@@ -13,7 +13,7 @@ where = ["src"]
 
 [project]
 name = "treeco"
-version = "1.0"
+version = "0.1"
 authors = [
   { name="Francesco Daghero", email="francesco.daghero@polito.it" },
 ]
@@ -43,8 +43,8 @@ minversion = "6.0"
 testpaths = ["tests"]
 
 [project.urls]
-"Homepage" = ""
-"Bug Tracker" = ""
+"Homepage" = "https://github.com/francescodaghero/treeco"
+"Bug Tracker" = "https://github.com/francescodaghero/treeco/issues"
 
 [tool.flake8]
 max-line-length = 88

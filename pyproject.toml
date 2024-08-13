@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.t", "*.c", "*.h", "Makefile", "*.json"]
+
+[project]
+name = "treeco"
+version = "1.0"
+authors = [
+  { name="Francesco Daghero", email="francesco.daghero@polito.it" },
+]
+description = "Treeco: Tree compilation for efficient inference"
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+  "numpy",
+  "scikit-learn",
+  "bigtree",
+  "matplotlib",
+  "xdsl",
+  "skl2onnx==1.17.0",
+  "onnxmltools==1.12.0"
+]
+
+[project.optional-dependencies]
+c_formatter = ["clang-format"]
+development = ["black"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+
+[project.urls]
+"Homepage" = ""
+"Bug Tracker" = ""
+
+[tool.flake8]
+max-line-length = 88
+per-file-ignores="__init__.py:F401"
+extend-ignore = "E203,"

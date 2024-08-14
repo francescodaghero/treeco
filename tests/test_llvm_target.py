@@ -20,7 +20,6 @@ def test_llvm_library(batch_size=2):
     module_op = crown_transform(ensemble_ir, ctx)
 
     # TODO: Use actual test data
-
     # Use the ensemble for prediction in python
     ensemble_attr: treeco.TreeEnsembleAttr = find_operation_in_module(
         module_op=module_op, target_op=crown.TreeEnsembleOp
@@ -31,9 +30,10 @@ def test_llvm_library(batch_size=2):
 
     # Lower to Trunk
     module_op = trunk_transform(module_op, ctx)
-    print(module_op)
-    # Exit from TreeCo.
+    # Lower to arith/memref
     module_op = target_transform(module_op, ctx, target="llvm")
+    # Lower to llvm ir
+    dump_to_llvm("output.mlir", module_op=module_op, ctx = ctx)
 
     lib = compile_as_library(".", "output.mlir")
     run_inference(

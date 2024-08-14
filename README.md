@@ -3,7 +3,7 @@ TreeCo is an [xDSL](https://github.com/xdslproject/xdsl)-based AI compiler for t
 It parses an ONNX TreeEnsemble(Classifier/Regressor), and generates a valid MLIR-based representation that can be further optimized according to the user preferences.
 Optimizations such as leaf/node quantization, logits-> vote conversion for Random Forest classifiers, loop unrolling are already implemented, and more are on the way!
 
-<b>Disclaimer</b> This package is still under construction and is more a personal project to explore MLIR/xDSL than a full-fledged deployment solution.
+<b>Disclaimer</b> This package is still under construction and is more of a personal project to explore MLIR/xDSL than a full-fledged deployment solution.
 
 For an optimized version of this package targeting RISC-V, please refer to the original framework: [Eden](https://github.com/eml-eda/eden).
 
@@ -73,12 +73,12 @@ run_inference(
 ```
 
 ## Why not using X/Y/Z?
-Most available frameworks (e.g. TVM/IREE) focus on Deep Learning (DLs) operators, while tree ensemble need scalar ones. Implementing them in other frameworks can rapidly become tricky.
+Many available frameworks focus on tensor-level operations while tree ensemble generally need scalar ones. Implementing them in other frameworks can rapidly become tricky.
 xDSL, being Python-based and compatible with MLIR seemed an ideal alternative to implement a custom solution. New high-level passes can be rapidly developed in Python, while reusing most lowering passes available in TreeCo/xDSL/MLIR.
 
 ## Requirements
 Aside from the package requirements, an MLIR installation compatible with XDSL is required to lower to LLVM IR.
-To translate to C, mlir-translate of version >= 20 is required (Note, only mlir-translate, a compatible mlir-opt should be used for all passes before).
+To translate to C, mlir-translate of version >= 20 is required (Note, only mlir-translate, an xDSL-compatible mlir-opt should be used for all passes before).
 
 
 ## Citing 

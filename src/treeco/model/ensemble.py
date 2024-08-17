@@ -1,5 +1,17 @@
 from copy import deepcopy
-from typing import Any, Iterable, List, Literal, Mapping, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    Iterable,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    Callable,
+    Set,
+)
 
 import numpy as np
 from bigtree import levelorder_iter, preorder_iter
@@ -14,12 +26,23 @@ from treeco.utils import (
 )
 
 
+def _lambda_from_aggregate_mode(aggregate_mode: str) -> Callable:
+    mapping = {
+        Ensemble.AGGREGATE_MODE_SUM: lambda x: np.sum(x, axis=1),
+        Ensemble.AGGREGATE_MODE_VOTE: lambda x: np.argmax(np.sum(x, axis=1), axis=1),
+    }
+    return mapping[aggregate_mode]
+
+
 class Ensemble:
     """
     Core class for the ensemble of trees.
     It can be used as a standalone, or inside the TreeCo module
-
     """
+
+    # TODO : Maybe map to integers
+    AGGREGATE_MODE_SUM = "SUM"
+    AGGREGATE_MODE_VOTE = "VOTE"
 
     # Class Builders
     def __init__(
@@ -37,11 +60,18 @@ class Ensemble:
 
     # PROPERTIES AND CONTROL VARIABLES
     @property
-    def n_targets(self):
+    def targets(self) -> Set:
+        """
+        Id of each target class
+        """
         tgts = set()
         for tree in self.trees:
-            tgts = tgts.union(tgts, tree.n_targets)
-        return len(tgts)
+            tgts = tgts.union(tgts, tree.targets)
+        return tgts
+
+    @property
+    def n_targets(self) -> int:
+        return len(self.targets)
 
     @property
     def max_depth(self):
@@ -97,7 +127,7 @@ class Ensemble:
         return len(set([tree.max_depth for tree in self.trees])) == 1
 
     # Methods
-    def predict(self, X) -> np.ndarray:
+    def predict_raw(self, X) -> np.ndarray:
         """
         Iterative prediction function for the ensemble.
         Returns the output of each tree, with no aggregation or post-transform.
@@ -109,13 +139,58 @@ class Ensemble:
         Returns
         -------
         np.ndarray
-            The predictions with shape (n_samples, n_trees, output_length)
+            The predictions with shape (n_samples, n_trees, leaf_shape)
         """
         predictions = np.zeros((X.shape[0], self.n_trees, self.leaf_shape))
         for idx, tree in enumerate(self.trees):
             for i_idx, x_in in enumerate(X):
                 predictions[i_idx, idx] = tree.predict(x_in)
         return predictions
+
+    ## The following methods depend on the aggregation mode
+    def predict(self, X) -> np.ndarray:
+        """
+        Iterative prediction function for the ensemble with aggregation.
+        It assumes all leaves in a tree have the same targets.
+        -----------
+        X : np.ndarray
+            The input data
+        Returns
+        -------
+        np.ndarray
+            The predictions with shape (n_samples, n_trees, n_targets)
+        """
+        # TODO : Quite slow, could be parallelized.
+        predictions = np.zeros((X.shape[0], self.n_targets))
+        for idx, tree in enumerate(self.trees):
+            # TODO: This assumes that all leaves of a tree have the same target!
+            targets_ids: np.ndarray = tree.targets
+            for i_idx, x_in in enumerate(X):
+                predictions[i_idx, targets_ids] += tree.predict(x_in)
+
+        lambda_fun: Callable = _lambda_from_aggregate_mode(
+            aggregate_mode=self.aggregate_mode
+        )
+        predictions = lambda_fun(predictions)
+        return predictions
+
+    @property
+    def output_range(self):
+        bounds = np.zeros((self.n_targets, self.n_trees, 2))
+        for tree_idx, tree in enumerate(self.trees):
+            tree = cast(Node, tree)
+            min_val, max_val = tree.output_range
+            targets_ids: np.ndarray = np.asarray(list(tree.targets))
+            bounds[targets_ids, tree_idx, 0] = min_val
+            bounds[targets_ids, tree_idx, 1] = max_val
+        lambda_fun: Callable = _lambda_from_aggregate_mode(
+            aggregate_mode=self.aggregate_mode
+        )
+        # Apply the aggregation function on the bounds
+        aggregated_bounds = lambda_fun(bounds)
+        min_val = np.min(aggregated_bounds)
+        max_val = np.max(aggregated_bounds)
+        return min_val, max_val
 
     def quantize_thresholds(
         self,

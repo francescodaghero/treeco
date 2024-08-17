@@ -91,11 +91,9 @@ class RoundInput(RewritePattern):
 
 
 class QuantizeLeaves(RewritePattern):
-    def __init__(self, precision: int, min_val: float, max_val: float, **kwargs):
+    def __init__(self, precision: int, **kwargs):
         super().__init__(**kwargs)
         self.precision = precision
-        self.min_val = min_val
-        self.max_val = max_val
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: crown.TreeEnsembleOp, rewriter: PatternRewriter):
@@ -104,13 +102,15 @@ class QuantizeLeaves(RewritePattern):
         new_etype = IntegerType(self.precision, signedness=Signedness.UNSIGNED)
         ensemble = Ensemble.parse_attr(op.ensemble)
         # Exclude non-SUM ensembles
-        if ensemble.aggregate_mode != "SUM":
+        if ensemble.aggregate_mode != Ensemble.AGGREGATE_MODE_SUM:
             return
 
+        ensemble_output_min, ensemble_output_max = ensemble.output_range
+        print(ensemble.output_range)
         ensemble.quantize_leaves(
             precision=self.precision,
-            min_val=self.min_val,
-            max_val=self.max_val,
+            min_val=ensemble_output_min,
+            max_val=ensemble_output_max,
         )
 
         # Regenerate the block argument
@@ -179,15 +179,11 @@ class CrownQuantizeLeavesPass(ModulePass):
         ctx: MLContext,
         op: ModuleOp,
         precision: int,
-        min_val: float,
-        max_val: float,
     ) -> None:
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [
-                    QuantizeLeaves(
-                        precision=precision, min_val=min_val, max_val=max_val
-                    ),
+                    QuantizeLeaves(precision=precision),
                 ]
             )
         ).rewrite_module(op)

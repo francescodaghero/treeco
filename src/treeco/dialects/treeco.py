@@ -111,6 +111,9 @@ class TreeEnsembleAttr(ParametrizedAttribute):
     # Attributes
     ## Tree stats
     n_features: ParameterDef[IntegerAttr]
+    # A new attribute - SUM or VOTE, default is SUM. Used to avoid VOTE -> Quantization,
+    # and to drive lowering to the right path.
+    # TODO: Can this be avoided? Can we infer this from the model?
     aggregate_mode: ParameterDef[StringAttr]
     post_transform: ParameterDef[StringAttr]
 

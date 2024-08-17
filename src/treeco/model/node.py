@@ -4,6 +4,7 @@ from bigtree import (
     levelorder_iter,
     levelordergroup_iter,
 )
+from typing import cast
 from typing import Optional, Callable
 from typing import Literal, Tuple
 from typing import Union
@@ -110,19 +111,26 @@ class Node(BinaryNode):
         return next(self.leaves).targets_weights.shape[-1]
 
     @property
-    def n_targets(self) -> int:
+    def targets(self):
         """
-        Returns the number of targets in the tree, i.e. the number of classes.
-
-        Returns
-        -------
-        int
-            The number of targets
+        Returns the target ids available in all leaves.
         """
         tgts = set()
         for leaf in self.leaves:
             tgts = tgts.union(tgts, set(leaf.targets_ids))
         return tgts
+
+    @property
+    def output_range(self) -> tuple[np.ndarray, np.ndarray]:
+        first_leaf = next(self.leaves)
+        first_leaf = cast(Node, first_leaf)
+        min_val = first_leaf.targets_weights
+        max_val = first_leaf.targets_weights
+        for leaf in self.leaves:
+            # For each element of the 1D arrays, get the max elements elementwise
+            min_val = np.minimum(min_val, leaf.targets_weights)
+            max_val = np.maximum(max_val, leaf.targets_weights)
+        return min_val, max_val
 
     def predict(self, x) -> np.ndarray:
         """
@@ -145,6 +153,29 @@ class Node(BinaryNode):
                 return self.left.predict(x)
             else:
                 return self.right.predict(x)
+
+    def apply(self, x) -> np.ndarray:
+        """
+        Iterative prediction function for a tree.
+        It works with a batch_size = 1.
+        Returns the leaf node.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            The input data
+        Returns
+        -------
+        Node
+            The leaf node.
+        """
+        if self.is_leaf:
+            return self
+        else:
+            if x[self.nodes_featureids] <= self.nodes_values:
+                return self.left.apply(x)
+            else:
+                return self.right.apply(x)
 
     @classmethod
     def _from_node(cls, name: str, node: "Node", dummy: bool = False) -> "Node":

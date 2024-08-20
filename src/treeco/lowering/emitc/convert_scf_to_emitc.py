@@ -8,47 +8,19 @@ for ....:
         tree_visit() <-- This includes the while()
 """
 
-from typing import Any, List
-from xdsl.rewriter import InsertPoint, Rewriter
-from xdsl.ir import Region, Block
 from xdsl.context import MLContext
-from treeco.model.ensemble import Ensemble
-from xdsl.dialects.builtin import (
-    IntegerType,
-    StringAttr,
-    IntegerAttr,
-    ModuleOp,
-    FloatAttr,
-    TensorType,
-    MemRefType,
-    NoneType,
-    IndexType,
-    DenseArrayBase,
-    StridedLayoutAttr,
-    IntAttr,
-    NoneAttr,
-    i64,
-    ArrayAttr,
-)
+from xdsl.dialects import arith, scf
+from xdsl.dialects.builtin import IndexType, IntegerAttr, ModuleOp, StringAttr
+from xdsl.ir import Block, Region
+from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
-    GreedyRewritePatternApplier,
     PatternRewriter,
     PatternRewriteWalker,
     RewritePattern,
     op_type_rewrite_pattern,
-    TypeConversionPattern,
-    attr_type_rewrite_pattern,
 )
-from xdsl.passes import ModulePass
-from xdsl.pattern_rewriter import (
-    PatternRewriter,
-    RewritePattern,
-    op_type_rewrite_pattern,
-)
-from xdsl.builder import Builder, ImplicitBuilder
-from treeco.dialects import crown, trunk
-from xdsl.dialects import func, scf, arith, memref, affine, printf
-from treeco.utils import tensor_to_memref, I64_MIN, convert_np_to_arrayattr
+from xdsl.rewriter import InsertPoint
+
 from treeco.dialects import emitc
 
 

@@ -1,20 +1,7 @@
-from typing import Any, List
-from xdsl.rewriter import InsertPoint, Rewriter
 from xdsl.context import MLContext
-from treeco.model.ensemble import Ensemble
 from xdsl.dialects.builtin import (
-    IntegerAttr,
     ModuleOp,
-    TensorType,
-    MemRefType,
-    NoneType,
     IndexType,
-    DenseArrayBase,
-    StridedLayoutAttr,
-    IntAttr,
-    NoneAttr,
-    i64,
-    ArrayAttr,
 )
 from xdsl.pattern_rewriter import (
     GreedyRewritePatternApplier,
@@ -22,8 +9,6 @@ from xdsl.pattern_rewriter import (
     PatternRewriteWalker,
     RewritePattern,
     op_type_rewrite_pattern,
-    TypeConversionPattern,
-    attr_type_rewrite_pattern,
 )
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -31,14 +16,8 @@ from xdsl.pattern_rewriter import (
     RewritePattern,
     op_type_rewrite_pattern,
 )
-from xdsl.builder import Builder, ImplicitBuilder
-from treeco.dialects import crown, trunk
-from xdsl.dialects import func, scf, arith, memref, affine
-from treeco.utils import tensor_to_memref, I64_MIN, convert_np_to_arrayattr
+from xdsl.dialects import arith
 from treeco.dialects import emitc
-from treeco.targets.cpp.add_entry_point import AddMainPass
-
-import numpy as np
 
 
 class CmpiToCmp(RewritePattern):

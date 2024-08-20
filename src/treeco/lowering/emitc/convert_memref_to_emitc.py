@@ -1,45 +1,23 @@
-from typing import Any, List
-from xdsl.rewriter import InsertPoint, Rewriter
-from xdsl.context import MLContext
+import time
 
-from treeco.model.ensemble import Ensemble
-from xdsl.dialects.builtin import (
-    IntegerAttr,
-    ModuleOp,
-    TensorType,
-    MemRefType,
-    NoneType,
-    IndexType,
-    DenseArrayBase,
-    StridedLayoutAttr,
-    IntAttr,
-    NoneAttr,
-    i64,
-    ArrayAttr,
-)
+import numpy as np
+from xdsl.context import MLContext
+from xdsl.dialects import arith, func, memref
+from xdsl.dialects.builtin import IntAttr, MemRefType, ModuleOp
+from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     GreedyRewritePatternApplier,
     PatternRewriter,
     PatternRewriteWalker,
     RewritePattern,
-    op_type_rewrite_pattern,
     TypeConversionPattern,
     attr_type_rewrite_pattern,
-)
-from xdsl.passes import ModulePass
-from xdsl.pattern_rewriter import (
-    PatternRewriter,
-    RewritePattern,
     op_type_rewrite_pattern,
 )
-from xdsl.builder import Builder, ImplicitBuilder
-from treeco.dialects import crown, trunk
-from xdsl.dialects import func, scf, arith, memref, affine
-from treeco.utils import tensor_to_memref, I64_MIN, convert_np_to_arrayattr
-from treeco.dialects import emitc
+from xdsl.rewriter import InsertPoint
 
-import numpy as np
-import time
+from treeco.dialects import emitc
+from treeco.utils import convert_np_to_arrayattr
 
 
 def get_unique_name() -> str:
@@ -157,89 +135,6 @@ class GetGlobalToGetGlobal(RewritePattern):
         rewriter.replace_matched_op([new_use], [new_use.results[0]])
 
 
-class MergeSubviewSlices(RewritePattern):
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: memref.Subview, rewriter: PatternRewriter):
-        # Check all ops using the subview,
-        # Try to merge the idx of the Subview into the Loads and Stores
-        # TODO: Implement this
-        # NOTE: What happens if the size is different?
-        # NOTE: How do i handle the offset?
-        # NOTE: What if the parent is a Subview? Should not happen with folding
-        # NOTE: How to handle the strides?
-
-        # First, it should be simplified, if it was a constant, just remove it.
-        # TODO : This should be optimized before
-        if op.operands[0].type.shape == op.results[0].type.shape:
-            rewriter.replace_matched_op([], [op.operands[0]])
-
-        # IGNORE: Dynamic Sizes, ignored for now
-        # SOLUTION: Dynamic Strides, not supported atm
-        if len(op.strides) != 0:
-            return
-        # SOLUTION: Static strides, unsupported, return if != 1
-        for e in op.static_strides.as_tuple():
-            if e != 1:
-                return
-
-        # SOLUTION: Static sizes are ignored atm, return if not equal to input size
-        # TREECO: We never reduce the rank
-        for d1, d2 in zip(op.static_sizes.as_tuple(), op.operands[0].type.shape):
-            if d1 != 1 and d1 != d2.data:
-                return
-
-        # Check that only supported OP will have the input modified
-        for user in op.results[0].uses:
-            if not (
-                isinstance(user.operation, memref.Load)
-                or isinstance(user.operation, memref.Store)
-            ):
-                return
-
-        # Handle the static or dynamic offsets
-        # Since this pass supports only shapes identical to the original,
-        # every subview is just a slice op
-        off_idx = 0
-        per_dim_offsets = []
-        for off in op.static_offsets.as_tuple():
-            if off < 0:
-                ssa_var = op.offsets[off_idx]
-                per_dim_offsets.append(ssa_var)
-            elif off == 0:
-                per_dim_offsets.append(None)
-            else:
-                # Something is wrong, this should never happen, or it is not a slice
-                return
-
-        # Now modify the uses
-        original_uses = [*op.results[0].uses]
-        for idx, user in enumerate(original_uses):
-            user = user.operation
-            new_offsets = list()
-            original_indices = user.indices
-            for off_op, off_new in zip(original_indices, per_dim_offsets):
-                if off_new is not None:
-                    # If this was a constant
-                    new_offset = arith.Addi(operand1=off_op, operand2=off_new)
-                    rewriter.insert_op(new_offset, InsertPoint.before(user))
-                    new_offsets.append(new_offset)
-                else:
-                    new_offsets.append(off_op)
-
-            if isinstance(user, memref.Load):
-                # Merge the idx lists
-                # Add the new indices
-
-                new_op = memref.Load.get(ref=op.operands[0], indices=new_offsets)
-                rewriter.replace_op(user, new_op, [new_op.results[0]])
-            elif isinstance(user, memref.Store):
-                new_op = memref.Store.get(
-                    ref=op.operands[0], indices=new_offsets, value=user.operands[0]
-                )
-                rewriter.replace_op(user, new_op, [])
-        rewriter.erase_op(op)
-
-
 class LoadToSubscript(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(
@@ -262,17 +157,9 @@ class FixFuncBlocks(RewritePattern):
 
 class ConvertMemrefToEmitcPass(ModulePass):
     def apply(self, ctx: MLContext, op: ModuleOp):
-        # PatternRewriteWalker(
-        #    GreedyRewritePatternApplier(
-        #        [
-        #            MergeSubviewSlices(),  # Needed, as subviews are not supported in emitc
-        #        ]
-        #    )
-        # ).rewrite_module(op)
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [
-                    # MergeSubviewSlices(),  # Needed, as subviews are not supported in emitc
                     AllocToGlobal(),
                     StoreToAssign(),
                     LoadToSubscript(),
@@ -287,7 +174,6 @@ class ConvertMemrefToEmitcPass(ModulePass):
             GreedyRewritePatternApplier(
                 [
                     MemrefToArrayType(),
-                    # FixFuncBlocks()
                 ]
             )
         ).rewrite_module(op)

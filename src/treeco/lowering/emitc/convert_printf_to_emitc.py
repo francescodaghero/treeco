@@ -1,46 +1,26 @@
-from typing import Any, List
-from xdsl.rewriter import InsertPoint, Rewriter
+import re
+from typing import Any
+
+from xdsl.builder import Builder
 from xdsl.context import MLContext
-from treeco.model.ensemble import Ensemble
+from xdsl.dialects import printf
 from xdsl.dialects.builtin import (
     AnyFloat,
-    IntegerType,
-    AnySignlessIntegerOrIndexType,
-    IntegerAttr,
-    ModuleOp,
-    FloatAttr,
-    TensorType,
-    MemRefType,
-    NoneType,
-    IndexType,
-    DenseArrayBase,
-    StridedLayoutAttr,
-    IntAttr,
-    NoneAttr,
-    i64,
     ArrayAttr,
-)
-from xdsl.pattern_rewriter import (
-    GreedyRewritePatternApplier,
-    PatternRewriter,
-    PatternRewriteWalker,
-    RewritePattern,
-    op_type_rewrite_pattern,
-    TypeConversionPattern,
-    attr_type_rewrite_pattern,
+    IndexType,
+    IntegerAttr,
+    IntegerType,
+    ModuleOp,
 )
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     PatternRewriter,
+    PatternRewriteWalker,
     RewritePattern,
     op_type_rewrite_pattern,
 )
-from xdsl.builder import Builder, ImplicitBuilder
-from treeco.dialects import crown, trunk
-from xdsl.dialects import func, scf, arith, memref, affine, printf
-from treeco.utils import tensor_to_memref, I64_MIN, convert_np_to_arrayattr
+
 from treeco.dialects import emitc
-import re
 
 
 class PrintfToEmitc(RewritePattern):

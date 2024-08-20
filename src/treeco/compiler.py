@@ -1,6 +1,5 @@
 from pathlib import Path
-from typing import Literal
-import numpy as np
+from typing import Literal, Union, Optional, Mapping, Any, Tuple
 
 from xdsl.context import MLContext
 from xdsl.dialects import (
@@ -23,18 +22,15 @@ from treeco.frontend.ir_gen import ir_gen
 from treeco.frontend.parser import Parser
 from treeco.lowering import *
 from treeco.lowering.convert_crown_to_trunk import ConvertCrownToTrunkIterativePass
-from treeco.lowering.emitc.convert_arith_to_emitc import ConvertArithToEmitcPass
-from treeco.lowering.emitc.convert_memref_to_emitc import ConvertMemrefToEmitcPass
-from treeco.lowering.emitc.convert_printf_to_emitc import ConvertPrintfToEmitcPass
-from treeco.model.ensemble import Ensemble
-from treeco.targets.cpp.add_entry_point import AddMainPass
 from treeco.transforms import *
-from treeco.utils.xdsl_utils import find_operation_in_module
-from xdsl.transforms.printf_to_llvm import PrintfToLLVM
-from treeco.targets.llvm.lower_to_llvm import dump_to_llvm
 
 
 def context() -> MLContext:
+    """
+    Just loading a bunch of dialects, not sure this is the best way to handle
+    the context
+    #TODO : Investigate further, should this be split in a context per transform function?
+    """
     ctx = MLContext()
     ctx.load_dialect(treeco.Treeco)
     ctx.load_dialect(bufferization.Bufferization)
@@ -58,12 +54,45 @@ def context() -> MLContext:
     return ctx
 
 
-def parse_ensemble(onnx_path: str) -> ModuleOp:
+def parse_ensemble(onnx_path: str) -> Mapping[str, Any]:
+    """
+    Parse the onnx model and return the MLIR ModuleOp
+
+    Parameters
+    ----------
+    onnx_path : str
+        Path to the onnx file
+
+    Returns
+    -------
+    Mapping[str, Any]
+        A dictionary representation of the ensemble in the ONNX file. A key:val for each
+        field in the ensemble
+    """
     parsed_model = Parser(Path(onnx_path)).parseModel()
     return parsed_model
 
 
-def generate_ir(parsed_model, batch_size: int = 1) -> ModuleOp:
+def generate_ir(
+    parsed_model: Mapping[str, Any], batch_size: int = 1
+) -> Tuple[ModuleOp, MLContext]:
+    """
+    Convert the parsed model to MLIR
+
+    Parameters
+    ----------
+    parsed_model : Mapping[str,Any]
+        A mapping of the parsed ONNX model
+    batch_size : int, optional
+        The batch size of the inference function, by default 1
+
+    Returns
+    -------
+    ModuleOp
+        The ensemble IR using the ONNXML dialect
+    MLContext
+        The context for lowering the program
+    """
     ctx = context()
     module_op = ir_gen(parsed_onnx=parsed_model, batch_size=batch_size)
     return module_op, ctx
@@ -73,19 +102,55 @@ def crown_transform(
     module_op: ModuleOp,
     ctx: MLContext,
     # Convert to voting classifier
-    convert_to_voting=False,
+    convert_to_voting: bool = False,
     # Ensemble pruning parameters
-    prune_to_n_trees=False,
-    pad_mode="None",
+    prune_to_n_trees: Union[Literal[False], int] = False,
+    pad_to_perfect: bool = False,
     # Input and output quantization parameters
-    quantize_input_to_n_bits=None,
-    truncate_input_to_n_bits=None,
-    min_val_input=None,
-    max_val_input=None,
-    quantize_output_to_n_bits=None,
-    min_val_output=None,
-    max_val_output=None,
+    quantize_input_to_n_bits: Optional[int] = None,
+    truncate_input_to_n_bits: Optional[int] = None,
+    min_val_input: Optional[float] = None,
+    max_val_input: Optional[float] = None,
+    quantize_output_to_n_bits: Optional[int] = None,
 ) -> ModuleOp:
+    """
+    Apply a series of passes to the crown dialect ops.
+    It includes:
+    1. logits to vote conversion (convert_to_voting)
+    2. tree pruning (prune_to_n_trees)
+    3. tree pad to perfect (pad_to_perfect)
+    3. input quantization (quantize..., min_val..., max_val...) or (truncate...)
+    4. output quantization (quantize_output_to_n_bits)
+
+    Parameters
+    ----------
+    module_op : ModuleOp
+        The program IR
+    ctx : MLContext
+        The context
+    convert_to_voting : bool, optional
+        Flag to enable logits -> vote conversion (and related optimizations), by default False
+    prune_to_n_trees : Union[Literal[False], int], optional
+        Flag to enable tree pruning, by default False
+    pad_to_perfect : bool
+        Flag to enable tree padding, by default False
+    quantize_input_to_n_bits : Optional[int], optional
+        Flag to quantize the thresholds, by default None
+    truncate_input_to_n_bits : Optional[int], optional
+        Flag to truncate the alphas to int, by default None
+    min_val_input : Optional[float], optional
+        The smallest value of alphas for quantization, by default None
+    max_val_input : Optional[float], optional
+        The largest value of alphas for quantizations, by default None
+    quantize_output_to_n_bits : Optional[int], optional
+        Flag to enable output quantization, by default None
+
+    Returns
+    -------
+    ModuleOp
+        The modified program IR
+    """
+
     # TODO Avoid voting + output quantization
     # Convert to Crown IR
     ConvertOnnxmlToCrownPass().apply(ctx=ctx, op=module_op)
@@ -93,7 +158,7 @@ def crown_transform(
         CrownConvertToVotingClassifierPass().apply(ctx, module_op)
     if prune_to_n_trees:
         CrownPruneTreesPass().apply(ctx, module_op, n_trees=prune_to_n_trees)
-    if pad_mode != "None":
+    if pad_to_perfect:
         CrownPadTreesPerfectPass().apply(ctx, module_op)
 
     if truncate_input_to_n_bits:
@@ -115,8 +180,6 @@ def crown_transform(
             ctx,
             module_op,
             precision=quantize_output_to_n_bits,
-            min_val=min_val_output,
-            max_val=max_val_output,
         )
     mlir_opt_pass(module_op, ctx, [])
     return module_op
@@ -126,14 +189,33 @@ def trunk_transform(
     module_op: ModuleOp,
     ctx: MLContext,
     tree_algorithm: Literal["iterative"] = "iterative",
-    pad_ensemble_to_min_depth: Literal["auto"] | bool = False,
+    pad_to_min_depth: Union[int, Literal["auto"], False] = False,
 ) -> ModuleOp:
+    """
+    Conversion passes to lower from Crown to Trunk dialect and then
+    optimize Trunk.
+    Here, the algorithm to traverse the tree is the main focus.
+
+    Parameters
+    ----------
+    module_op : ModuleOp
+        The program IR
+    ctx : MLContext
+        The context
+    tree_algorithm : Literal[&quot;iterative&quot;], optional
+        The algorithm to visit the tree, by default "iterative"
+    pad_to_min_depth : Union[int, Literal[&quot;auto&quot;], False], optional
+        whether to push all leaves to a minimum depth, by default False
+
+    Returns
+    -------
+    ModuleOp
+        The updated program IR
+    """
     # From Crown to Trunk
     if tree_algorithm == "iterative":
-        if pad_ensemble_to_min_depth:
-            TrunkPadTreesPass().apply(
-                ctx, module_op, min_depth_ensemble=pad_ensemble_to_min_depth
-            )
+        if pad_to_min_depth:
+            TrunkPadToMinDepthPass().apply(ctx, module_op, min_depth=pad_to_min_depth)
         ConvertCrownToTrunkIterativePass().apply(ctx=ctx, op=module_op)
 
     mlir_opt_pass(module_op, ctx, [])
@@ -141,33 +223,34 @@ def trunk_transform(
     return module_op
 
 
-def target_transform(
+def root_transform(
     module_op: ModuleOp,
     ctx: MLContext,
-    target: str,
+    bufferize: bool = True,
+    quantize_index_arrays=True,
 ):
+    """
+    Convert from trunks/treeco to arith/tensor.
+    Optionally, bufferize with MLIR + a custom pass for ml_program
+    """
 
     # Exit from Treeco custom type
     LowerTrunkPass().apply(ctx=ctx, op=module_op)
     LowerTreecoPass().apply(ctx=ctx, op=module_op)
-    ConvertMlProgramToMemrefPass().apply(ctx=ctx, op=module_op)
-    bufferize_pass(module_op, ctx)
 
-    FoldMemRefSubViewChainPass().apply(ctx=ctx, op=module_op)
+    if bufferize:
+        # Prepare the program for bufferization
+        ConvertMlProgramToMemrefPass().apply(ctx=ctx, op=module_op)
+        # Perform the actual bufferization
+        bufferize_pass(module_op, ctx)
+
+        # Optimize the program
+        # Quantize the indices, from i64 to iN + add some casts.
+        if quantize_index_arrays:
+            MemrefQuantizeGlobalIndexPass().apply(ctx=ctx, op=module_op)
+        FoldMemRefSubViewChainPass().apply(ctx=ctx, op=module_op)
+        mlir_opt_pass(module_op=module_op, ctx=ctx)
+        mlir_opt_pass(module_op, ctx, ["--convert-linalg-to-loops"])
+
     mlir_opt_pass(module_op=module_op, ctx=ctx)
-    MemrefQuantizeGlobalIndexPass().apply(ctx=ctx, op=module_op)
-    mlir_opt_pass(module_op=module_op, ctx=ctx)
-    # Linalg to scf loops
-    mlir_opt_pass(module_op, ctx, ["--convert-linalg-to-loops"])
-
-    if target == "cpp":
-        ConvertMemrefToEmitcPass().apply(ctx=ctx, op=module_op)
-        ConvertArithToEmitcPass().apply(ctx=ctx, op=module_op)
-        ConvertPrintfToEmitcPass().apply(ctx=ctx, op=module_op)
-    elif target == "llvm":
-        # Disabled as I cannot make the mlir_c_inference function generated in the llvm ir work!
-        # PrepareLLVMLoweringPass().apply(ctx=ctx, op=module_op)
-        PrintfToLLVM().apply(ctx=ctx, op=module_op)
-        convert_scf_to_cf_pass(module_op, ctx)
-
     return module_op

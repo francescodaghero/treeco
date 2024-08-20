@@ -10,17 +10,17 @@ from xdsl.pattern_rewriter import (
 
 from treeco.dialects import treeco, trunk
 from treeco.model.ensemble import Ensemble
+from typing import Union, Literal
 
 
-class TrunkPadTrees(RewritePattern):
-    def __init__(self, min_depth_ensemble: int, **kwargs):
+class TrunkPadToMinDepth(RewritePattern):
+    def __init__(self, min_depth: Union[int, Literal["auto"]], **kwargs):
         """
         min_depth_ensemble: int
             The minimum depth of all leaves in the ensemble.
         """
         super().__init__(**kwargs)
-        assert min_depth_ensemble >= 1, "Invalid minimum depth selected"
-        self.min_depth_ensemble = min_depth_ensemble
+        self.min_depth = min_depth
 
     @op_type_rewrite_pattern
     def match_and_rewrite(
@@ -40,13 +40,13 @@ class TrunkPadTrees(RewritePattern):
         rewriter.replace_matched_op(pop, [])
 
 
-class TrunkPadTreesPass(ModulePass):
+class TrunkPadToMinDepthPass(ModulePass):
     def apply(
         self,
         ctx: MLContext,
         op: ModuleOp,
-        min_depth_ensemble: int,
+        min_depth: Union[int, Literal["auto"]],
     ) -> None:
         PatternRewriteWalker(
-            TrunkPadTrees(min_depth_ensemble=min_depth_ensemble),
+            TrunkPadToMinDepth(min_depth=min_depth),
         ).rewrite_module(op)

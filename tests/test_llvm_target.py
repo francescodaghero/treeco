@@ -3,14 +3,14 @@ from treeco.compiler import (
     generate_ir,
     crown_transform,
     trunk_transform,
-    target_transform,
-    dump_to_llvm,
+    root_transform,
 )
 from treeco.model import Ensemble
 from treeco.dialects import treeco, crown
 from treeco.utils import find_operation_in_module
 import numpy as np
 from treeco.targets.llvm.library import compile_as_library, run_inference
+from treeco.targets.llvm import target_transform_and_dump
 
 
 def test_llvm_library(batch_size=2):
@@ -21,8 +21,6 @@ def test_llvm_library(batch_size=2):
         ensemble_ir,
         ctx,
         quantize_output_to_n_bits=8,
-        max_val_output=2,
-        min_val_output=0,
     )
 
     # TODO: Use actual test data
@@ -37,9 +35,9 @@ def test_llvm_library(batch_size=2):
     # Lower to Trunk
     module_op = trunk_transform(module_op, ctx)
     # Lower to arith/memref
-    module_op = target_transform(module_op, ctx, target="llvm")
+    module_op = root_transform(module_op, ctx)
     # Lower to llvm ir
-    dump_to_llvm("output.mlir", module_op=module_op, ctx=ctx)
+    target_transform_and_dump("output.mlir", module_op=module_op, ctx=ctx)
 
     lib = compile_as_library(".", "output.mlir")
     run_inference(

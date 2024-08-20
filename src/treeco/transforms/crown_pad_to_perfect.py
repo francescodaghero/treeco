@@ -17,37 +17,16 @@ from treeco.dialects import crown, treeco
 from treeco.model.ensemble import Ensemble
 
 
-class CrownPadTrees(RewritePattern):
-    def __init__(self, min_depth_ensemble: int, **kwargs):
-        """
-        min_depth_ensemble: int
-            The minimum depth of all leaves in the ensemble. -1 means pad to perfect
-        """
-        super().__init__(**kwargs)
-        assert min_depth_ensemble >= -1, "Invalid minimum depth selected"
-        self.min_depth_ensemble = min_depth_ensemble
-
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: crown.TreeEnsembleOp, rewriter: PatternRewriter):
-        ensemble = Ensemble.parse_attr(op.ensemble)
-        if ensemble.min_depth_leaves >= self.min_depth_ensemble:
-            return
-
-        ensemble.pad_to_depth(min_depth=self.min_depth_ensemble)
-        ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
-        pop = crown.TreeEnsembleOp(
-            buffer_in=op.operands[0],
-            ensemble_attr=ensemble_attr,
-            buffer_out=op.operands[1],
-        )
-        rewriter.replace_matched_op(pop, [])
-
-
 class CrownPadTreesPerfect(RewritePattern):
+    """
+    Pad each tree in the Crown Ensemble to perfect.
+    Note: It uses the maximum depth of the ensemble.
+    """
+
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: crown.TreeEnsembleOp, rewriter: PatternRewriter):
         ensemble = Ensemble.parse_attr(op.ensemble)
-        if ensemble.min_depth_leaves >= self.min_depth_ensemble:
+        if ensemble.is_perfect():
             return
 
         ensemble.pad_to_perfect()

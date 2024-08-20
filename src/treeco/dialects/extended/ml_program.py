@@ -147,7 +147,6 @@ class GlobalLoadConstant(IRDLOperation):
 
     @classmethod
     def parse(cls, parser: Parser) -> Self:
-        print("PARSEEEEE")
         attrs = parser.parse_optional_attr_dict()
         global_attr = parser.parse_attribute()
         parser.parse_punctuation(":")

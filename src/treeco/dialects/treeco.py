@@ -3,6 +3,7 @@ Dialect implementing all types/attributes used in Crown and Trunk, plus some Cas
 """
 
 import numpy as np
+from typing import Annotated, Generic, Literal, TypeVar, cast, overload
 from xdsl.utils.exceptions import DiagnosticException
 from treeco import utils as utils
 from xdsl.dialects.builtin import (
@@ -13,6 +14,7 @@ from xdsl.dialects.builtin import (
     AnyFloat,
 )
 from xdsl.irdl import (
+    ConstraintVar,
     irdl_op_definition,
     result_def,
     IRDLOperation,
@@ -274,6 +276,10 @@ class TreeEnsembleAttr(ParametrizedAttribute):
 
 @irdl_op_definition
 class CastSignOp(IRDLOperation):
+    """
+    Used to temporary remove/add the sign
+    """
+
     name = "treeco.cast_sign"
     operand1 = operand_def()
     res = result_def()
@@ -285,15 +291,11 @@ class CastSignOp(IRDLOperation):
 @irdl_op_definition
 class Cast(IRDLOperation):
     name = "treeco.cast"
-    operand1 = operand_def(NodeType | IndexType)
-    res = result_def(IndexType | NodeType)
+    operand1 = operand_def()
+    res = result_def()
 
     def __init__(self, operand1: SSAValue, output_type):
         super().__init__(operands=[operand1], result_types=[output_type])
-
-    def verify(self, verify_nested_ops: bool = True) -> None:
-        if self.operand1.type == self.res.type:
-            raise DiagnosticException("Cast operation must have different types")
 
 
 Treeco = Dialect(

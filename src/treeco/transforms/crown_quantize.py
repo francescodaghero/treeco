@@ -101,12 +101,11 @@ class QuantizeLeaves(RewritePattern):
             return
         new_etype = IntegerType(self.precision, signedness=Signedness.UNSIGNED)
         ensemble = Ensemble.parse_attr(op.ensemble)
-        # Exclude non-SUM ensembles
+        # Exclude non-SUM ensembles (i.e. vote)
         if ensemble.aggregate_mode != Ensemble.AGGREGATE_MODE_SUM:
             return
 
         ensemble_output_min, ensemble_output_max = ensemble.output_range
-        print(ensemble.output_range)
         ensemble.quantize_leaves(
             precision=self.precision,
             min_val=ensemble_output_min,

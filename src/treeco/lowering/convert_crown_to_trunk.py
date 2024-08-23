@@ -188,17 +188,15 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
                 )
                 leaf_op = trunk.GetLeafOp(tree=tree_element, node=while_loop)
                 leaf_value = trunk.GetLeafValueOp(tree=tree_element, leaf=leaf_op)
-
-                # Leaf aggregate here
-                leafs = _aggregate_leaf_tensors(
-                    ensemble_data.aggregate_mode,
-                    leaf_type,
-                    tree_idx,
-                    leaf_value,
-                    output_tensor_tree,
+                new_output_tensor_tree = trunk.AggregateLeafOp(
+                    ensemble = ensemble_op,
+                    tree = tree_element,
+                    leaf = leaf_value,
+                    tensor_out = output_tensor_tree,
                 )
 
-                scf.Yield(leafs[-1])
+                scf.Yield(new_output_tensor_tree)
+
 
             tree_for = scf.For(
                 lb=zero_const,

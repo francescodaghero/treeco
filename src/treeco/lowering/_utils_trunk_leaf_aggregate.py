@@ -10,7 +10,7 @@ AGGREGATE_MODE_SUM = "SUM"
 
 
 def _aggregate_leaf_tensors_vote(
-    leaf_type: treeco.LeafType,
+    #leaf_type: treeco.LeafType,
     tree_idx: Operation,
     leaf_tensor: Operation,
     output_tensor: Operation,
@@ -20,7 +20,7 @@ def _aggregate_leaf_tensors_vote(
     """
 
     zc = arith.Constant.from_int_and_width(0, builtin.IndexType())
-    leaf_idx = tensor.ExtractOp.get(
+    leaf_idx= tensor.ExtractOp.get(
         tensor=leaf_tensor,
         indices=[zc, zc],
     )
@@ -66,7 +66,6 @@ def _aggregate_leaf_tensors_vote(
 
 
 def _aggregate_leaf_tensors_sum_single(
-    leaf_type: treeco.LeafType,
     tree_idx: Operation,
     leaf_tensor: Operation,
     output_tensor: Operation,
@@ -136,7 +135,6 @@ def _aggregate_leaf_tensors_sum_single(
 
 
 def _aggregate_leaf_tensors_sum_multi(
-    leaf_type: treeco.LeafType,
     tree_idx: Operation,
     leaf_tensor: Operation,
     output_tensor: Operation,
@@ -209,7 +207,6 @@ def _aggregate_leaf_tensors(
 
     if aggregate_mode == AGGREGATE_MODE_VOTE:
         return _aggregate_leaf_tensors_vote(
-            leaf_type=leaf_type,
             tree_idx=tree_idx,
             leaf_tensor=leaf_tensor,
             output_tensor=output_tensor,
@@ -227,14 +224,12 @@ def _aggregate_leaf_tensors(
             )
         elif leaf_shape[-1] < 2:
             return _aggregate_leaf_tensors_sum_single(
-                leaf_type=leaf_type,
                 tree_idx=tree_idx,
                 leaf_tensor=leaf_tensor,
                 output_tensor=output_tensor,
             )
         else:
             return _aggregate_leaf_tensors_sum_multi(
-                leaf_type=leaf_type,
                 tree_idx=tree_idx,
                 leaf_tensor=leaf_tensor,
                 output_tensor=output_tensor,

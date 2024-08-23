@@ -53,7 +53,39 @@ AnyNumericAttr = FloatAttr | IntegerAttr
 
 
 @irdl_op_definition
+class AggregateLeafOp(IRDLOperation):
+    name = "trunk.aggregate_leaf"
+    ensemble = operand_def(TreeEnsembleType)
+    tree = operand_def(TreeType)
+    # The two tensors to aggregate
+    leaf = operand_def(TensorType)
+    tensor_out = operand_def(TensorType)
+    res = result_def(TensorType)
+
+    def __init__(
+        self,
+        ensemble: SSAValue,
+        tree: SSAValue,
+        leaf: SSAValue,
+        tensor_out: SSAValue,
+    ):
+        super().__init__(
+            operands=[
+                ensemble,
+                tree,
+                leaf,
+                tensor_out,
+            ],
+            result_types=[tensor_out.type],
+        )
+
+
+@irdl_op_definition
 class GetLeafValueOp(IRDLOperation):
+    """
+    Starting from a leaf struct or an index, get the actual leaf value.
+    """
+
     name = "trunk.get_leaf_value"
     tree = operand_def(TreeType)
     leaf = operand_def(LeafType)
@@ -66,6 +98,10 @@ class GetLeafValueOp(IRDLOperation):
 
 @irdl_op_definition
 class GetLeafOp(IRDLOperation):
+    """
+    Starting from a terminal node, get the corresponding leaf.
+    """
+
     name = "trunk.get_leaf"
     tree = operand_def(TreeType)
     node = operand_def(NodeType)
@@ -241,30 +277,6 @@ class TraverseTreeOp(IRDLOperation):
         super().__init__(operands=[tree, data_in], result_types=[output_leaf_type])
 
 
-@irdl_op_definition
-class AggregateLeaf(IRDLOperation):
-    name = "trunk.aggregate_leaf"
-    tree = operand_def(TreeType)
-    data_leaf = operand_def(TensorType)
-    data_to = operand_def(TensorType)
-    res = result_def(TensorType)
-
-    def __init__(
-        self,
-        tree: SSAValue,
-        leaf_value: SSAValue,
-        data_to: SSAValue,
-    ):
-        super().__init__(
-            operands=[
-                tree,
-                leaf_value,
-                data_to,
-            ],
-            result_types=[data_to.results[0].type],
-        )
-
-
 Trunk = Dialect(
     "trunk",
     [
@@ -272,12 +284,12 @@ Trunk = Dialect(
         PostTransform,
         GetTreeOp,
         TraverseTreeOp,
-        AggregateLeaf,
         GetRootOp,
         IsLeafOp,
         VisitNextNodeOp,
         GetLeafOp,
         GetLeafValueOp,
+        AggregateLeafOp,
     ],
     [],
 )

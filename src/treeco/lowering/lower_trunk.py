@@ -12,7 +12,9 @@ from typing import Optional
 from xdsl.dialects import builtin, arith, scf
 from xdsl.dialects.builtin import StringAttr
 from xdsl.rewriter import InsertPoint
+from typing import Sequence
 
+from treeco.lowering._utils_trunk_leaf_aggregate import _aggregate_leaf_tensors
 from treeco.dialects.extended import tensor, ml_program
 from treeco.utils import I64_MIN
 from xdsl.pattern_rewriter import (
@@ -68,7 +70,9 @@ class PartialLowerEnsemble(RewritePattern):
 
         # Convert the elements to xdsl types
         for k, v in ensemble_mapping.items():
-            ensemble_mapping[k] = convert_np_to_tensor(v, is_index="ids" in k)
+            ensemble_mapping[k] = convert_np_to_tensor(
+                v, is_index="ids" in k
+            )
 
         # Add the globals
         for k, v in ensemble_mapping.items():
@@ -130,9 +134,11 @@ class LowerGetRoot(RewritePattern):
             tensor=roots_tensor,
             indices=root_cast_in,
         )
-        root_cast_out = treeco.Cast(operand1=root_idx, output_type=op.results[0].type)
+        root_cast_out = treeco.Cast(
+            operand1=root_idx, output_type=op.results[0].type
+        )
         rewriter.replace_matched_op(
-            [root_cast_in, roots_tensor, root_idx, root_cast_out],
+            [root_cast_in, roots_tensor, root_idx, root_cast_out,],
             [root_cast_out.results[0]],
         )
 
@@ -190,8 +196,6 @@ class LowerIsLeaf(RewritePattern):
         nodes_featureids_global = find_global_mlprogram_by_name(
             module_op=op.get_toplevel_object(), name=FEATUREIDS_DATA
         )
-        if nodes_featureids_global is None:
-            return
 
         nodes_featureids_data = ml_program.GlobalLoadConstant(
             global_attr=builtin.SymbolRefAttr(FEATUREIDS_DATA),
@@ -204,7 +208,7 @@ class LowerIsLeaf(RewritePattern):
             indices=cast_in,
         )
         n_features_const = arith.Constant.from_int_and_width(
-            n_features, builtin.IndexType()
+            n_features, feature_idx.results[0].type
         )
 
         out_bool = arith.Cmpi(operand1=feature_idx, operand2=n_features_const, arg="ne")
@@ -225,6 +229,152 @@ class LowerIsLeaf(RewritePattern):
         rewriter.replace_op(cast_out.next_op, [cond_op], [])
 
 
+def visit_next_node_iterative_rchild(module_op, node_idx, inputs) -> Sequence:
+    zero_constant = arith.Constant.from_int_and_width(0, builtin.IndexType())
+    one_constant = arith.Constant.from_int_and_width(1, builtin.IndexType())
+
+    nodes_values_global = find_global_mlprogram_by_name(
+        module_op=module_op, name=THRESHOLD_DATA
+    )
+    nodes_falsenodeids_global = find_global_mlprogram_by_name(
+        module_op=module_op, name=FALSENODEIDS_DATA
+    )
+    nodes_featureids_global = find_global_mlprogram_by_name(
+        module_op=module_op, name=FEATUREIDS_DATA
+    )
+
+    # Load the constants
+    nodes_values = ml_program.GlobalLoadConstant(
+        global_attr=builtin.SymbolRefAttr(THRESHOLD_DATA),
+        result_type=nodes_values_global.value.type,
+    )
+    nodes_falsenodeids = ml_program.GlobalLoadConstant(
+        global_attr=builtin.SymbolRefAttr(FALSENODEIDS_DATA),
+        result_type=nodes_falsenodeids_global.value.type,
+    )
+    nodes_featureids = ml_program.GlobalLoadConstant(
+        global_attr=builtin.SymbolRefAttr(FEATUREIDS_DATA),
+        result_type=nodes_featureids_global.value.type,
+    )
+
+    # Load the value
+    threshold_val = tensor.ExtractOp.get(
+        tensor=nodes_values,
+        indices=node_idx,
+    )
+    right_shift= tensor.ExtractOp.get(
+        tensor=nodes_falsenodeids,
+        indices=node_idx,
+    )
+    feature_idx= tensor.ExtractOp.get(
+        tensor=nodes_featureids,
+        indices=node_idx,
+    )
+
+    input_val = tensor.ExtractOp.get(inputs, indices=[zero_constant, feature_idx])
+    if isinstance(input_val.results[0].type, builtin.IntegerType):
+        is_signed = input_val.results[0].type.signedness == builtin.Signedness.SIGNED
+        cmp = "sgt" if is_signed else "ugt"
+        cmp_out = arith.Cmpi(input_val, threshold_val, cmp)
+    else:
+        # Ordered -> Neither can be NaN
+        cmp_out = arith.Cmpf(input_val, threshold_val, "ogt")
+
+    # Block to get to the new node from the current idx
+    # new_node = (node_idx + 1) + (cmp_out * right_shift)
+    node_plus = arith.Addi(node_idx, one_constant, result_type=builtin.IndexType())
+    cmp_out_int = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
+    cmp_out_idx = arith.IndexCastOp(cmp_out_int, builtin.IndexType())
+    mul_out = arith.Muli(cmp_out_idx, right_shift, result_type=builtin.IndexType())
+    new_node_idx = arith.Addi(node_plus, mul_out, result_type=builtin.IndexType())
+
+    return [
+        zero_constant,
+        one_constant,
+        nodes_values,
+        nodes_falsenodeids,
+        nodes_featureids,
+        threshold_val,
+        feature_idx,
+        right_shift,
+        input_val,
+        cmp_out,
+        node_plus,
+        cmp_out_int,
+        cmp_out_idx,
+        mul_out,
+        new_node_idx,
+    ]
+
+
+def visit_next_node_iterative_perfect(module_op, node_idx, inputs) -> Sequence:
+    zero_constant = arith.Constant.from_int_and_width(0, builtin.IndexType())
+    one_constant = arith.Constant.from_int_and_width(1, builtin.IndexType())
+    two_constant = arith.Constant.from_int_and_width(2, builtin.IndexType())
+
+    nodes_values_global = find_global_mlprogram_by_name(
+        module_op=module_op, name=THRESHOLD_DATA
+    )
+    nodes_featureids_global = find_global_mlprogram_by_name(
+        module_op=module_op, name=FEATUREIDS_DATA
+    )
+
+    # Load the constants
+    nodes_values = ml_program.GlobalLoadConstant(
+        global_attr=builtin.SymbolRefAttr(THRESHOLD_DATA),
+        result_type=nodes_values_global.value.type,
+    )
+    nodes_featureids = ml_program.GlobalLoadConstant(
+        global_attr=builtin.SymbolRefAttr(FEATUREIDS_DATA),
+        result_type=nodes_featureids_global.value.type,
+    )
+
+    # Load the value
+    threshold_val = tensor.ExtractOp.get(
+        tensor=nodes_values,
+        indices=node_idx,
+    )
+
+    feature_idx= tensor.ExtractOp.get(
+        tensor=nodes_featureids,
+        indices=node_idx,
+    )
+
+    input_val = tensor.ExtractOp.get(inputs, indices=[zero_constant, feature_idx])
+    if isinstance(input_val.results[0].type, builtin.IntegerType):
+        is_signed = input_val.results[0].type.signedness == builtin.Signedness.SIGNED
+        cmp = "sgt" if is_signed else "ugt"
+        cmp_out = arith.Cmpi(input_val, threshold_val, cmp)
+    else:
+        # Ordered -> Neither can be NaN
+        cmp_out = arith.Cmpf(input_val, threshold_val, "ogt")
+
+    # Block to get to the new node from the current idx
+    # new_node = 2*node_idx + cmp_out + 1
+    new_node_mul = arith.Muli(node_idx, two_constant, result_type=builtin.IndexType())
+    cmp_out_int = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
+    cmp_out_idx = arith.IndexCastOp(cmp_out_int, builtin.IndexType())
+    add_cmp = arith.Addi(cmp_out_idx, new_node_mul, result_type=builtin.IndexType())
+    new_node_idx = arith.Addi(add_cmp, one_constant, result_type=builtin.IndexType())
+
+    return [
+        zero_constant,
+        one_constant,
+        two_constant,
+        nodes_values,
+        nodes_featureids,
+        threshold_val,
+        feature_idx,
+        input_val,
+        cmp_out,
+        new_node_mul,
+        cmp_out_int,
+        cmp_out_idx,
+        add_cmp,
+        new_node_idx,
+    ]
+
+
 class LowerVisitNextNode(RewritePattern):
     mode: str
     nodes_mode: str
@@ -242,111 +392,22 @@ class LowerVisitNextNode(RewritePattern):
         op: trunk.VisitNextNodeOp,
         rewriter: PatternRewriter,
     ):
-        if self.nodes_mode != "rchild":
-            return
         node_idx = treeco.Cast(operand1=op.operands[1], output_type=builtin.IndexType())
-
-        zero_constant = arith.Constant.from_int_and_width(0, builtin.IndexType())
-        one_constant = arith.Constant.from_int_and_width(1, builtin.IndexType())
-        nodes_values_global = find_global_mlprogram_by_name(
-            module_op=op.get_toplevel_object(), name=THRESHOLD_DATA
-        )
-        if nodes_values_global is None:
-            return
-
-        nodes_falsenodeids_global = find_global_mlprogram_by_name(
-            module_op=op.get_toplevel_object(), name=FALSENODEIDS_DATA
-        )
-        if nodes_falsenodeids_global is None:
-            return
-
-        nodes_featureids_global = find_global_mlprogram_by_name(
-            module_op=op.get_toplevel_object(), name=FEATUREIDS_DATA
-        )
-        if nodes_featureids_global is None:
-            return
-
-        # Load the constants
-        nodes_values = ml_program.GlobalLoadConstant(
-            global_attr=builtin.SymbolRefAttr(THRESHOLD_DATA),
-            result_type=nodes_values_global.value.type,
-        )
-        nodes_falsenodeids = ml_program.GlobalLoadConstant(
-            global_attr=builtin.SymbolRefAttr(FALSENODEIDS_DATA),
-            result_type=nodes_falsenodeids_global.value.type,
-        )
-        nodes_featureids = ml_program.GlobalLoadConstant(
-            global_attr=builtin.SymbolRefAttr(FEATUREIDS_DATA),
-            result_type=nodes_featureids_global.value.type,
-        )
-
-        # Load the value
-        threshold_val = tensor.ExtractOp.get(
-            tensor=nodes_values,
-            indices=node_idx,
-        )
-        right_shift = tensor.ExtractOp.get(
-            tensor=nodes_falsenodeids,
-            indices=node_idx,
-        )
-        feature_idx = tensor.ExtractOp.get(
-            tensor=nodes_featureids,
-            indices=node_idx,
-        )
-
-        input_val = tensor.ExtractOp.get(
-            op.operands[2], indices=[zero_constant, feature_idx]
-        )
-        if isinstance(input_val.results[0].type, builtin.IntegerType):
-            is_signed = (
-                input_val.results[0].type.signedness == builtin.Signedness.SIGNED
+        if self.nodes_mode == "rchild":
+            ops = visit_next_node_iterative_rchild(
+                op.get_toplevel_object(), node_idx, op.operands[2]
             )
-            cmp = "sgt" if is_signed else "ugt"
-            cmp_out = arith.Cmpi(input_val, threshold_val, cmp)
-        else:
-            # Ordered -> Neither can be NaN
-            cmp_out = arith.Cmpf(input_val, threshold_val, "ogt")
-
-        node_plus = arith.Addi(node_idx, one_constant, result_type=builtin.IndexType())
-        # Included as constant
-        # right_minus = arith.Subi(
-        #    right_shift, one_constant, result_type=builtin.IndexType()
-        # )
-        cmp_out_int = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
-        cmp_out_idx = arith.IndexCastOp(cmp_out_int, builtin.IndexType())
-        mul_out = arith.Muli(cmp_out_idx, right_shift, result_type=builtin.IndexType())
-        new_node_idx = arith.Addi(node_plus, mul_out, result_type=builtin.IndexType())
-
-        pr = printf.PrintFormatOp(
-            "NEW_NODE: {} - NODEPL {} - RS {} - CMP {} - MOUT: {}, THRESHOLD: {}",
-            new_node_idx,
-            node_plus,
-            right_shift,
-            cmp_out_idx,
-            mul_out,
-            threshold_val,
-        )
-        cast_out = treeco.Cast(operand1=new_node_idx, output_type=op.results[0].type)
+        elif self.nodes_mode == "perfect":
+            ops = visit_next_node_iterative_perfect(
+                op.get_toplevel_object(), node_idx, op.operands[2]
+            )
+        cast_out = treeco.Cast(operand1=ops[-1], output_type=op.results[0].type)
         rewriter.replace_matched_op(
             [
                 node_idx,
-                zero_constant,
-                one_constant,
-                nodes_values,
-                nodes_falsenodeids,
-                nodes_featureids,
-                threshold_val,
-                right_shift,
-                feature_idx,
-                input_val,
-                cmp_out,
-                node_plus,
-                # right_minus,
-                cmp_out_int,
-                cmp_out_idx,
-                mul_out,
-                new_node_idx,
-                # pr,
+            ]
+            + ops
+            + [
                 cast_out,
             ],
             [cast_out.results[0]],
@@ -414,16 +475,15 @@ class LowerGetLeafOp(RewritePattern):
             leaf_idx = tensor.ExtractOp.get(tensor=leaf_idx_store, indices=cast_in)
             additional_ops.extend([leaf_idx_store, leaf_idx])
             to_be_recasted = leaf_idx
-        pr = printf.PrintFormatOp(
-            "LEAF: {}",
-            to_be_recasted,
-        )
+
+        if not isinstance(to_be_recasted.results[0].type, builtin.IndexType):
+            to_be_recasted = arith.IndexCastOp(to_be_recasted, builtin.IndexType())
+            additional_ops.append(to_be_recasted)
         cast_out = treeco.Cast(operand1=to_be_recasted, output_type=op.results[0].type)
         rewriter.replace_matched_op(
             [cast_in]
             + additional_ops
             + [
-                # pr,
                 cast_out,
             ],
             [cast_out.results[0]],
@@ -458,9 +518,15 @@ class LowerGetLeafValueOp(RewritePattern):
         # Slice the tensor to get only the leaf value.
         # This depends on the number of dimensions.
         output_shape = op.results[0].type.get_shape()
+        # Re-build the output type, this is to avoid issue with the index compression step
+        output_type = builtin.TensorType(
+            element_type = leaves.results[0].type.get_element_type(),
+            shape= op.results[0].type.get_shape(),
+            encoding= op.results[0].type.encoding
+        )
         output_slice = tensor.ExtractSliceOp.build(
             operands=[leaves, [cast_in], [], []],
-            result_types=[op.results[0].type],
+            result_types=[output_type],
             properties={
                 "static_offsets": builtin.DenseArrayBase.from_list(
                     builtin.i64, [I64_MIN] + [0] * (len(output_shape) - 1)
@@ -477,6 +543,29 @@ class LowerGetLeafValueOp(RewritePattern):
             [cast_in, leaves, output_slice], [output_slice.results[0]]
         )
 
+class LowerAggregateLeafOp(RewritePattern):
+    def __init__(self, mode, nodes_mode, leaf_array, **kwargs):
+        super().__init__(**kwargs)
+        self.mode = mode
+        self.nodes_mode = nodes_mode
+        self.leaf_array = leaf_array
+
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: trunk.AggregateLeafOp, rewriter: PatternRewriter):
+        aggregate_mode = op.ensemble.type.aggregate_mode.data
+        leaf_type = op.ensemble.owner.ensemble.leaf_type()
+        leafs = _aggregate_leaf_tensors(
+            aggregate_mode,
+            leaf_type,
+            op.tree,
+            op.leaf,
+            op.tensor_out,
+        )
+        rewriter.replace_matched_op(
+            leafs,
+            [leafs[-1].results[0]],
+        )
+        
 
 class LowerTrunkPass(ModulePass):
     name = "lower-trunk"
@@ -507,6 +596,10 @@ class LowerTrunkPass(ModulePass):
 
         PatternRewriteWalker(
             LowerGetLeafValueOp(mode=mode, nodes_mode=nodes_mode, leaf_array=leaf_array)
+        ).rewrite_module(op)
+
+        PatternRewriteWalker(
+            LowerAggregateLeafOp(mode = mode, nodes_mode = nodes_mode, leaf_array = leaf_array)
         ).rewrite_module(op)
 
         op.verify()

@@ -1,6 +1,3 @@
-numpy
-mako
-scikit-learn
-clang-format
+xdsl
 black
 pytest

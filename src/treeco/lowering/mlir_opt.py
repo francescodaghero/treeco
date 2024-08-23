@@ -25,6 +25,8 @@ def mlir_opt_pass(
     # Conditional args
     arguments = ["-allow-unregistered-dialect"] if allow_unregistered_dialects else []
     arguments += [
+        # A bad default since xDSL has some trouble parsing back hexs
+        "-mlir-print-elementsattrs-with-hex-if-larger=9999",
         "-mlir-print-op-generic",
         "-scf-for-loop-canonicalization",
         "--loop-invariant-code-motion",

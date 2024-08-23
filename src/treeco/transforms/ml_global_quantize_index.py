@@ -65,17 +65,9 @@ class MlGlobalQuantizeIndex(RewritePattern):
         new_op = ml_program.GlobalLoadConstant(
             global_attr=op.global_attr, result_type=quant_global.type
         )
-        new_cast = tensor.CastOp(
-            source=new_op.results[0],
-            dest=builtin.TensorType(
-                element_type=builtin.IndexType(),
-                shape=new_op.results[0].type.get_shape(),
-                encoding=new_op.results[0].type.encoding,
-            ),
-        )
         rewriter.replace_matched_op(
-            [new_op, new_cast],
-            [new_cast.results[0]],
+            [new_op],
+            [new_op.results[0]],
         )
 
 

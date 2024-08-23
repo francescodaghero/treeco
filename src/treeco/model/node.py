@@ -4,6 +4,7 @@ from bigtree import (
     levelorder_iter,
     levelordergroup_iter,
 )
+from typing import Set
 from typing import cast
 from typing import Optional, Callable
 from typing import Literal, Tuple
@@ -54,7 +55,7 @@ class Node(BinaryNode):
         nodes_featureids: np.number,
         nodes_values: np.number,
         nodes_hitrates: np.number,
-        nodes_modes: Union[str, np.object_],
+        nodes_modes: Union[np.str_],
         **kwargs,
     ):
 
@@ -111,13 +112,13 @@ class Node(BinaryNode):
         return next(self.leaves).targets_weights.shape[-1]
 
     @property
-    def targets(self):
+    def targets(self) -> Set:
         """
         Returns the target ids available in all leaves.
         """
         tgts = set()
         for leaf in self.leaves:
-            tgts = tgts.union(tgts, set(leaf.targets_ids))
+            tgts = tgts.union(tgts, set(leaf.targets_ids.tolist()))
         return tgts
 
     @property
@@ -132,7 +133,7 @@ class Node(BinaryNode):
             max_val = np.maximum(max_val, leaf.targets_weights)
         return min_val, max_val
 
-    def predict(self, x) -> np.ndarray:
+    def predict(self, x, return_target_id: bool = False) -> np.ndarray:
         """
         Iterative prediction function for a tree.
         It works with a batch_size = 1.
@@ -141,18 +142,20 @@ class Node(BinaryNode):
         ----------
         X : np.ndarray
             The input data
+        return_target_id : bool
+            If true, returns the target id instead of the weights, used for VOTE mode
         Returns
         -------
         np.ndarray
             The predictions with shape (1, output_length)
         """
         if self.is_leaf:
-            return self.targets_weights
+            return self.targets_weights if not return_target_id else self.targets_ids
         else:
             if x[self.nodes_featureids] <= self.nodes_values:
-                return self.left.predict(x)
+                return self.left.predict(x, return_target_id)
             else:
-                return self.right.predict(x)
+                return self.right.predict(x, return_target_id)
 
     def apply(self, x) -> np.ndarray:
         """
@@ -181,7 +184,7 @@ class Node(BinaryNode):
     def _from_node(cls, name: str, node: "Node", dummy: bool = False) -> "Node":
         # Return an identical node, but without parents/children
         if dummy:
-            nodes_modes = "DUMMY_" + node.nodes_modes
+            nodes_modes = np.str_("DUMMY_" + node.nodes_modes)
         else:
             nodes_modes = node.nodes_modes
         is_dummy_node = dummy and "BRANCH" in nodes_modes
@@ -207,6 +210,11 @@ class Node(BinaryNode):
             if node.is_leaf:
                 node.nodes_values = node.nodes_values.astype(
                     np.dtype(f"uint{precision}")
+                )
+            elif node.nodes_modes.startswith("DUMMY"):
+                # This avoids passing a fake node with MAX_FLOAT or MIN_FLOAT to the quantize function
+                node.nodes_values = _get_fake_threshold(
+                    mode=node.nodes_modes.replace("DUMMY_", ""), value=self.nodes_values
                 )
             else:
                 node.nodes_values, _, _ = quantize(
@@ -279,18 +287,35 @@ class Node(BinaryNode):
         """
         Swaps the logits to the vote representation.
         The dtype is given by the maximum number of votes (i.e. n.trees in the ensemble)
+        Note that this method is:
+        1. Destructive (logits are dropped)
+        2. Not raising any warning if used for regression ensembles.
+
+        Point 2. Necessary because a classification ensemble with 2 classes is
+        identical to one for regression
+
+        N.B. This method converts a binary classifier output from a single one (the logits )
+        of the sample belonging to 0) to two, one per class.
+        An alternative could be a custom implementation of the inference, where instead of
+        output[class_predicted] += 1
+        we do:
+        output[0] += class_predicted
+        More efficient, but far less readable.
 
         Parameters
         ----------
         weights_dtype : np.dtype
             Smallest dtype that can contain the maximum number of votes. Default np.uint8
         """
+        cls_preds = lambda x: (
+            np.argmax(x, keepdims=True, axis = -1)
+            if len(x) > 1
+            else x > self._additional_info["binary_threshold"]
+        )
         for node in preorder_iter(self):
             if node.is_leaf:
-                node.targets_ids = (
-                    np.argmax(node.targets_weights)
-                    .reshape(1)
-                    .astype(node.targets_ids.dtype)
+                node.targets_ids = cls_preds(node.targets_weights).astype(
+                    node.targets_ids.dtype
                 )
                 node.targets_weights = np.asarray([1], dtype=weights_dtype)
             else:
@@ -301,15 +326,18 @@ class Node(BinaryNode):
         Remove branches terminating in nodes with the same output.
         """
 
+        cls_preds = lambda x: (
+            np.argmax(x, keepdims=True, axis = -1)
+            if len(x) > 1
+            else x > self._additional_info["binary_threshold"]
+        )
         stop_flag = True
         while stop_flag:
             stop_flag = False
             for node in self.leaves:
-                if (
-                    node.siblings[0].is_leaf
-                    and node.targets_weights.argmax()
-                    == node.siblings[0].targets_weights.argmax()
-                ):
+                if node.siblings[0].is_leaf and cls_preds(
+                    node.targets_weights
+                ) == cls_preds(node.siblings[0].targets_weights):
                     parent = node.parent
                     parent.left = None
                     parent.right = None
@@ -353,9 +381,17 @@ class Node(BinaryNode):
         self,
         target_edge_depth: Optional[int] = None,
     ) -> None:
+        """
+        Pads the tree to the target depth.
+
+        Parameters
+        ----------
+        target_edge_depth : Optional[int], optional
+            Target depth, the number of LEVELS, NOT the number of edges, by default None
+        """
         idx = self.n_nodes
         target_depth = (
-            target_edge_depth + 1 if target_edge_depth is not None else self.max_depth
+            target_edge_depth if target_edge_depth is not None else self.max_depth
         )
         for leaf in self.leaves:
             if (target_depth - leaf.depth) > 0:
@@ -408,7 +444,7 @@ class Node(BinaryNode):
                 if node.is_leaf:
                     break
                 if node.nodes_modes.startswith("DUMMY"):
-                    node.nodes_featureids = history[node.depth]
+                    node.nodes_featureids = history.get(node.depth, history[1])
 
     # Class methods
     @classmethod
@@ -514,6 +550,19 @@ class Node(BinaryNode):
         Mapping[str, np.ndarray]
             Field name : field value
         """
+
+        def _find_shared_dtype(to_type, from_type):
+            if "str" in to_type.name:
+                # Return general type, not a string with fixed width or one could be
+                # cut off
+                return np.str_
+            else:
+                # This is the behaviour we want
+                if from_type.itemsize > to_type.itemsize:
+                    print("Dtype warning: from_type is larger than to_type")
+                    raise NotImplementedError
+                return to_type
+
         nodes = [*preorder_iter(self)]
         aggregated_dict = nodes[0]._node_to_dict()
         aggregated_dict.update(nodes[0]._node_idx_to_dict(0, nodes))
@@ -522,8 +571,12 @@ class Node(BinaryNode):
             node_dict.update(node._node_idx_to_dict(idx, nodes))
             # Add the ids
             for k, v in node_dict.items():
+                # Force the same dtype
+                merged_dtype = _find_shared_dtype(
+                    to_type=aggregated_dict[k].dtype, from_type=v.dtype
+                )
                 aggregated_dict[k] = np.hstack(
-                    (aggregated_dict[k], v), dtype=aggregated_dict[k].dtype
+                    (aggregated_dict[k], v), dtype=merged_dtype
                 )
         # Add the tree fields
         # TODO : This can be moved directly at the ensemble level.

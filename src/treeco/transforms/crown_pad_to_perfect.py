@@ -29,7 +29,8 @@ class CrownPadTreesPerfect(RewritePattern):
         if ensemble.is_perfect():
             return
 
-        ensemble.pad_to_perfect()
+        # TODO: Add an option for auto or int
+        ensemble.pad_to_perfect("auto")
         ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
         pop = crown.TreeEnsembleOp(
             buffer_in=op.operands[0],

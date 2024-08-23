@@ -29,9 +29,30 @@ from treeco.utils import (
 def _lambda_from_aggregate_mode(aggregate_mode: str) -> Callable:
     mapping = {
         Ensemble.AGGREGATE_MODE_SUM: lambda x: np.sum(x, axis=1),
-        Ensemble.AGGREGATE_MODE_VOTE: lambda x: np.argmax(np.sum(x, axis=1), axis=1),
+        # Given a 3D array of dimension (n_samples, n_trees, 1),
+        # 1. Squeeze the last dimension
+        # 2. Apply bincount to each row, with min_length = n_classes
+        Ensemble.AGGREGATE_MODE_VOTE: lambda x: np.apply_along_axis(
+            lambda j: np.bincount(j, minlength=len(np.unique(x.squeeze(-1)))),
+            axis=1,
+            arr=x.squeeze(-1),
+        ),
     }
     return mapping[aggregate_mode]
+
+def _get_binary_classification_threshold(dtype: np.dtype, n_trees : int):
+    if "float" in dtype.name:
+        # Standard float
+        base_thr= 0.5
+    elif "uint" in dtype.name:
+        # Unsigned int
+        base_thr= 2 ** (dtype.itemsize * 8 - 1)
+    else:
+        # Signed int
+        base_thr= 0
+    
+    return base_thr / n_trees 
+
 
 
 class Ensemble:
@@ -142,9 +163,12 @@ class Ensemble:
             The predictions with shape (n_samples, n_trees, leaf_shape)
         """
         predictions = np.zeros((X.shape[0], self.n_trees, self.leaf_shape))
+        is_voting = self.aggregate_mode == Ensemble.AGGREGATE_MODE_VOTE
         for idx, tree in enumerate(self.trees):
             for i_idx, x_in in enumerate(X):
-                predictions[i_idx, idx] = tree.predict(x_in)
+                prediction = tree.predict(x_in, return_target_id=is_voting)
+                predictions[i_idx, idx] = prediction
+        predictions = predictions.astype(prediction.dtype)
         return predictions
 
     ## The following methods depend on the aggregation mode
@@ -161,13 +185,11 @@ class Ensemble:
             The predictions with shape (n_samples, n_trees, n_targets)
         """
         # TODO : Quite slow, could be parallelized.
-        predictions = np.zeros((X.shape[0], self.n_targets))
-        for idx, tree in enumerate(self.trees):
-            # TODO: This assumes that all leaves of a tree have the same target!
-            targets_ids: np.ndarray = tree.targets
-            for i_idx, x_in in enumerate(X):
-                predictions[i_idx, targets_ids] += tree.predict(x_in)
-
+        assert self.aggregate_mode in [
+            Ensemble.AGGREGATE_MODE_SUM,
+            Ensemble.AGGREGATE_MODE_VOTE,
+        ]
+        predictions = self.predict_raw(X)  # Shape (n_samples, n_trees, leaf_shape)
         lambda_fun: Callable = _lambda_from_aggregate_mode(
             aggregate_mode=self.aggregate_mode
         )
@@ -249,7 +271,7 @@ class Ensemble:
         """
         if self.aggregate_mode is None:
             raise Warning("No aggregation mode specified, using sum")
-        elif self.aggregate_mode == "vote":
+        elif self.aggregate_mode == Ensemble.AGGREGATE_MODE_VOTE:
             raise ValueError("Vote quantization has no sense")
         for tree in self.trees:
             tree = cast(Node, tree)
@@ -258,38 +280,39 @@ class Ensemble:
     def logits_to_vote(self) -> None:
         """
         Swap logits with the argmax in the leaves.
-
-        Raises
-        ------
-        Warning
-            If no aggregation mode is specified in the ensemble object
         """
+        assert self.aggregate_mode != Ensemble.AGGREGATE_MODE_VOTE
+        bin_class_thr = _get_binary_classification_threshold(next(self.trees[0].leaves).targets_weights.dtype, self.n_trees)
+        
 
-        if self.aggregate_mode is None:
-            raise Warning("No aggregation mode specified, using sum")
-        elif self.aggregate_mode == "vote":
-            raise ValueError("Vote to vote has no sense")
 
         new_dtype = np.min_scalar_type(self.n_trees)
-        for tree in self.trees:
+        for idx, tree in enumerate(self.trees):
             tree = cast(Node, tree)
+            tree._additional_info["binary_threshold"] = bin_class_thr
             tree.prune_same_targets()
             tree.logits_to_vote(weights_dtype=new_dtype)
-        self.aggregate_mode = "VOTE"
+        self.aggregate_mode = Ensemble.AGGREGATE_MODE_VOTE
 
-    def pad_to_perfect(self, to_left_leaf: bool = True) -> None:
+    def pad_to_perfect(
+        self, target_depth: Union[int | Literal["auto"]] = "auto"
+    ) -> None:
         """
         Pad the tree to perfect.
 
         Parameters
         ----------
-        to_left_leaf : bool, optional
-            Set the leaf to leftmost new leaf, i.e. to the last position, by default True
+        target_depth : Union[int, Literal[&quot;auto&quot;]], optional
+            if auto, all trees are padded to the maximum depth of the ensemble
         """
+
+        # TODO: Can this be smarter? (e.g. pad each tree to perfect depending on their max depth)
+        if target_depth == "auto":
+            target_depth = self.max_depth
 
         for tree in self.trees:
             tree = cast(Node, tree)
-            tree.pad_to_perfect(to_left_leaf=to_left_leaf)
+            tree.pad_to_perfect(target_edge_depth=target_depth)
 
     def pad_to_min_depth(self, min_depth: Optional[int] = None):
         if not min_depth:
@@ -401,6 +424,7 @@ class Ensemble:
         self,
         node_indices: Literal["perfect", "children", "rchild", "auto"] = "auto",
         leaf_values: Literal["internal", "external", "auto"] = "auto",
+        compress_indices : bool = False
     ) -> Tuple[Mapping[str, np.ndarray], str, str]:
         """
         Export the ensemble to numpy arrays, for the C/LLVM backend
@@ -491,13 +515,13 @@ class Ensemble:
         if leaf_values == "external":
             return_dictionary["targets_ids"] = targets_ids
             return_dictionary["targets_weights"] = targets_weights
-            if self.aggregate_mode == "VOTE":
+            if self.aggregate_mode == Ensemble.AGGREGATE_MODE_VOTE:
                 leaf_array = "targets_ids"
             else:
                 leaf_array = "targets_weights"
         else:
             return_dictionary["targets_ids"] = targets_ids
-            if self.aggregate_mode == "VOTE":
+            if self.aggregate_mode == Ensemble.AGGREGATE_MODE_VOTE:
                 leaf_array = ""
             else:
                 leaf_array = ""
@@ -508,6 +532,10 @@ class Ensemble:
         if node_indices == "children":
             return_dictionary["nodes_truenodeids"] = nodes_truenodeids
         # No nodes idxs are stored in the perfect mode
+        if compress_indices:
+            for k,v in return_dictionary.items():
+                if "ids" in k:
+                    return_dictionary[k] = return_dictionary[k].astype(np.min_scalar_type(v.max()))
 
         return return_dictionary, node_indices, leaf_array
 

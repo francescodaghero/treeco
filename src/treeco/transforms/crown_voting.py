@@ -11,12 +11,13 @@ from xdsl.pattern_rewriter import (
 
 from treeco.dialects import crown, treeco
 from treeco.model.ensemble import Ensemble
+from .func_legalize import UpdateSignatureFuncOp
 
 
 class ConvertToVoting(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: crown.TreeEnsembleOp, rewriter: PatternRewriter):
-        if op.attributes["ensemble"].aggregate_mode.data != "SUM":
+        if op.attributes["ensemble"].aggregate_mode.data == Ensemble.AGGREGATE_MODE_VOTE:
             return
 
         ensemble: Ensemble = Ensemble.parse_attr(op.ensemble)
@@ -25,10 +26,12 @@ class ConvertToVoting(RewritePattern):
         attr = ensemble.to_attr()
         new_nptype = np.min_scalar_type(ensemble.n_targets)
         new_dtype = IntegerType(new_nptype.itemsize * 8, signedness=Signedness.UNSIGNED)
-        new_buffer_out = MemRefType(
-            element_type=new_dtype,
-            shape=op.operands[1].type.get_shape(),
-        )
+        new_shape = op.operands[1].type.get_shape()
+        new_shape = (
+            new_shape[0],
+            ensemble.n_targets,
+        )  # Changes for binary classification
+        new_buffer_out = MemRefType(element_type=new_dtype, shape=new_shape)
         # This changes the block type
         rewriter.modify_block_argument_type(op.operands[1], new_buffer_out)
 
@@ -49,7 +52,7 @@ class CrownConvertToVotingClassifierPass(ModulePass):
         PatternRewriteWalker(
             ConvertToVoting(),
         ).rewrite_module(op)
-
-        # PatternRewriteWalker(
-        #    FixFuncBlocks(),
-        # ).rewrite_module(op)
+        PatternRewriteWalker(
+            UpdateSignatureFuncOp(),
+        ).rewrite_module(op)
+        op.verify()

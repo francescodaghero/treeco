@@ -19,16 +19,17 @@ from treeco.utils.xdsl_to_numpy import convert_dense_to_np
 
 
 def quantize_global_op(op: memref.Global):
+    shape = op.type.get_shape()
     value = op.initial_value
     np_arr: np.array = convert_dense_to_np(value)
-    np_arr = np_arr.astype(np.min_scalar_type(np_arr.max()))
+    np_arr = np_arr.astype(np.min_scalar_type(np_arr.max())).reshape(shape)
     new_value = convert_np_to_tensor(np_arr, is_signless=True)
 
     return memref.Global.get(
         sym_name=op.sym_name,
         sym_type=builtin.MemRefType(
             element_type=new_value.type.element_type,
-            shape=op.type.shape,
+            shape=shape,
             layout=op.type.layout,
             memory_space=op.type.memory_space,
         ),
@@ -73,6 +74,7 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
             new_op,
             [new_op.memref],
         )
+        new_op.verify()
         new_base_type = new_op.memref.type.get_element_type()
 
         uses = list(new_op.results[0].uses)
@@ -94,8 +96,21 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
                 else:
                     new_results.append(res_type)
 
+            old_operands_flattened : list = list(op_use.operands)
+            indices = []
+            start_idx = 0
+            if hasattr(op_use, "indices") and len(op_use.indices)>1:
+                copia = list(old_operands_flattened)
+                for idx, old_op in enumerate(copia):
+                    if old_op in op_use.indices:
+                        old_operands_flattened.remove(old_op)
+                        indices.append(old_op)
+                        if len(indices) == 1:
+                            start_idx = idx
+                old_operands_flattened = old_operands_flattened[:start_idx] + [indices] + old_operands_flattened[start_idx:]
+                
             new_use = type(op_use)(
-                operands=op_use.operands,
+                operands=old_operands_flattened,
                 result_types=new_results,
                 properties=op_use.properties,
                 attributes=op_use.attributes,

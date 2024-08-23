@@ -14,6 +14,7 @@ from treeco.model.ensemble import Ensemble
 from treeco.transforms.func_legalize import UpdateSignatureFuncOp
 
 
+
 class QuantizeInput(RewritePattern):
     def __init__(self, precision: int, min_val: float, max_val: float, **kwargs):
         super().__init__(**kwargs)
@@ -74,6 +75,7 @@ class RoundInput(RewritePattern):
         )
         ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
         # TODO : Check if operand is actually a block argument
+        # TODO : Make the type conversion depend on the input type, not a static one
         rewriter.modify_block_argument_type(
             idata,
             MemRefType(
@@ -148,6 +150,9 @@ class CrownQuantizeInputPass(ModulePass):
                     ),
                 ]
             )
+        ).rewrite_module(op)
+        PatternRewriteWalker(
+            UpdateSignatureFuncOp(),
         ).rewrite_module(op)
 
 

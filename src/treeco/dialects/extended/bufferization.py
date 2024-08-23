@@ -61,6 +61,8 @@ class MaterializeInDestinationOp(IRDLOperation):
         if self.writable:
             printer.print_string("writable ")
         printer.print_ssa_value(self.dest)
+        printer.print_string(" : ")
+        printer.print_operation_type(self)
 
     @classmethod
     def parse(cls, parser: Parser) -> Self:

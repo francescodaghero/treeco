@@ -148,10 +148,10 @@ def _aggregate_leaf_tensors_sum_multi(
             operand1=leaf_tensor,
             res=builtin.TensorType(
                 element_type=builtin.IntegerType(
-                    leaf_tensor.results[0].type.get_element_type().width,
+                    leaf_tensor.type.get_element_type().width,
                     signedness=builtin.Signedness.SIGNLESS,
                 ),
-                shape=leaf_tensor.results[0].type.get_shape(),
+                shape=leaf_tensor.type.get_shape(),
             ),
         )
         cast_in_output = treeco.CastSignOp(
@@ -170,11 +170,7 @@ def _aggregate_leaf_tensors_sum_multi(
             outputs=[cast_in_output.res],
             res=[cast_in_output.res.type],
         )
-        # Not working with bufferization!
-        # added_tensor = arith.Addi(
-        #     operand1=cast_in_output,
-        #     operand2=cast_in_leaf,
-        # )
+
         cast_out = treeco.CastSignOp(
             operand1=added_tensor,
             res=output_tensor.type,
@@ -182,7 +178,7 @@ def _aggregate_leaf_tensors_sum_multi(
         add_ops += [cast_in_output, cast_in_leaf, added_tensor, cast_out]
     else:
         added_tensor = linalg.AddOp(
-            inputs=[output_tensor, leaf_tensor.res],
+            inputs=[output_tensor, leaf_tensor],
             outputs=[output_tensor],
             res=[output_tensor.type],
         )

@@ -9,7 +9,7 @@ For an optimized version of this package targeting RISC-V, please refer to the o
 
 ## An example 
 ### IR
-Crown is the highest level dialect after the ONNXML IR. Here most optmization passes that change the structure of the tree are performed.
+Crown is the highest level dialect after the ONNXML IR. Here most optimization passes that change the structure of the tree are performed.
 ```mlir
 builtin.module {
   func.func public @inference(%arg0 : memref<2x10xf32>, %arg1 : memref<2x3xf32>) {

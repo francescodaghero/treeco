@@ -246,9 +246,9 @@ def root_transform(
 
         # Optimize the program
         # Quantize the indices, from i64 to iN + add some casts.
+        FoldMemRefSubViewChainPass().apply(ctx=ctx, op=module_op)
         if quantize_index_arrays:
             MemrefQuantizeGlobalIndexPass().apply(ctx=ctx, op=module_op)
-        FoldMemRefSubViewChainPass().apply(ctx=ctx, op=module_op)
         mlir_opt_pass(module_op=module_op, ctx=ctx)
         mlir_opt_pass(module_op, ctx, ["--convert-linalg-to-loops"])
 

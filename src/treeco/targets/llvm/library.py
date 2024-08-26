@@ -33,7 +33,7 @@ def compile_as_library(build_dir=".", mlir_path="output.mlir"):
     return lib
 
 
-def run_inference(
+def run_ctype_inference(
     lib: ctypes.CDLL,
     buffer_in: np.ndarray,
     buffer_out: np.ndarray,

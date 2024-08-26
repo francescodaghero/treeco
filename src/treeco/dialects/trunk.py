@@ -3,9 +3,16 @@ Lower-level IR to represent the ensemble.
 Here the focus is on the tree visit algorithm (iterative, matmul...)
 with tailored optimizations.
 """
+from xdsl.traits import (
+    HasParent,
+    IsTerminator,
+    Pure,
+)
+
 
 from xdsl.irdl import (
     irdl_op_definition,
+    opt_operand_def,
     VarOperand,
     OpResult,
     attr_def,
@@ -79,6 +86,27 @@ class AggregateLeafOp(IRDLOperation):
             result_types=[tensor_out.type],
         )
 
+@irdl_op_definition
+class GetTreeDepthOp(IRDLOperation):
+    """ 
+    Get the depth of the tree. Useful for perfect iteration
+    when the depths are all different
+    #TODO This has still no lowering
+    """
+    name = "trunk.get_tree_depth"
+    ensemble = operand_def(TreeEnsembleType)
+    tree = operand_def(TreeType)
+
+    def __init__(
+        self,
+        ensemble: SSAValue,
+        tree: SSAValue,
+    ):
+        raise NotImplementedError("This operation has no lowering yet.")
+        super().__init__(
+            operands=[ensemble, tree],
+            result_types=[IndexType()],
+        )
 
 @irdl_op_definition
 class GetLeafValueOp(IRDLOperation):
@@ -119,32 +147,27 @@ class VisitNextNodeOp(IRDLOperation):
     node = operand_def(NodeType)
     data_in = operand_def(TensorType)
     result = result_def(NodeType)
-    mode = prop_def(StringAttr)
+    root_node = opt_operand_def(NodeType)
+    # mode = prop_def(StringAttr)
 
     def __init__(
         self,
         tree: SSAValue,
         node: SSAValue,
         data_in: SSAValue,
-        mode: str = "right_child",
+        root_node: SSAValue | None = None,
+        # mode: str = "right_child",
     ):
-        assert mode in ["breadthfirst", "children", "right_child"]
+        # assert mode in ["breadthfirst", "children", "right_child"]
+        if root_node is None:
+            root_node = []
+
         super().__init__(
-            operands=[
-                tree,
-                node,
-                data_in,
-            ],
-            properties={"mode": StringAttr(mode)},
+            operands=[tree, node, data_in, root_node],
+            # properties={"mode": StringAttr(mode)},
             result_types=[node.type],
         )
 
-
-from xdsl.traits import (
-    HasParent,
-    IsTerminator,
-    Pure,
-)
 
 
 @irdl_op_definition

@@ -476,14 +476,21 @@ class Ensemble:
                 visit_method=visit_method, n_features=self.n_features
             )
             if leaf_values == "external":
-                # Store the leaves idxs, default in rchild
-                # feature_idx would be invalid, it denotes a leaf
                 leaves_idxs = nfeatureids == self.n_features
                 leaf_range = np.arange(n_leaves, n_leaves + tweights.shape[0])
-                rchild = rchild.astype(
-                    max(np.min_scalar_type(leaf_range.max()), rchild.dtype)
-                )
-                rchild[leaves_idxs] = leaf_range
+                # Store in the node_ids array if it is perfect, as we need no stopping condition!
+                if node_indices == "perfect":
+                    nfeatureids = nfeatureids.astype(
+                        max(np.min_scalar_type(leaf_range.max()), nfeatureids.dtype)
+                    )
+                    nfeatureids[leaves_idxs] = leaf_range
+                else:
+                    # Store the leaves idxs, default in rchild
+                    # feature_idx would be invalid, it denotes a leaf
+                    rchild = rchild.astype(
+                        max(np.min_scalar_type(leaf_range.max()), rchild.dtype)
+                    )
+                    rchild[leaves_idxs] = leaf_range
 
             # Append the arrays
             roots_ids.append(n_nodes)

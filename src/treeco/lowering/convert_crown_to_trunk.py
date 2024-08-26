@@ -8,9 +8,10 @@ from xdsl.passes import ModulePass
 from xdsl.context import MLContext
 from xdsl.builder import Builder
 from typing import Any
-from treeco.dialects import crown, trunk
+from treeco.dialects import crown, trunk, treeco
+from treeco.utils import find_op_in_operands_chain, find_operation_in_module
 from treeco.model.ensemble import Ensemble
-from xdsl.dialects import builtin, arith, scf
+from xdsl.dialects import builtin, arith, scf, func
 from treeco.dialects.extended import tensor, bufferization
 from treeco.utils import I64_MIN
 from xdsl.pattern_rewriter import (
@@ -55,6 +56,68 @@ class LowerPostTransform(RewritePattern):
             ensemble_attr=Ensemble.to_attr(ensemble_data),
             buffer_out=op.operands[1],
         )
+
+
+class ConvertIterativeEnsembleToPerfectIterativeMaybe(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(
+        self,
+        op: scf.While,
+        rewriter: PatternRewriter,
+    ):
+        # Find if the op is in an "inference" function
+        is_valid = False
+        op_top = op.parent_op()
+        while not isinstance(op_top, builtin.ModuleOp):
+            if isinstance(op_top, func.FuncOp):
+                if op_top.sym_name.data == "inference":
+                    is_valid = True
+                    break
+            op_top = op_top.parent_op()
+
+        if not is_valid:
+            return
+        # Find if it's the while (!is_leaf) loop
+        if not isinstance(op.before_region.block.args[0].type, treeco.NodeType):
+            return
+
+        visit_op = None
+        for o in op.after_region.block.walk():
+            if isinstance(o, trunk.VisitNextNodeOp):
+                visit_op = o
+                break
+        if visit_op is None:
+            return
+
+        ensemble_op = find_op_in_operands_chain(op, trunk.TreeEnsembleConstantOp)
+        ensemble_data: Ensemble = Ensemble.parse_attr(ensemble_op.ensemble)
+
+        if not ensemble_data.is_perfect():
+            return
+
+        # We can replace the whole loop, as it's a perfect iterative
+        zc = arith.Constant.from_int_and_width(0, builtin.IndexType())
+        oc = arith.Constant.from_int_and_width(1, builtin.IndexType())
+        # This part depends on the ensemble, does it have the same depth for all trees?
+        if ensemble_data.has_constant_depth():
+            ub = arith.Constant.from_int_and_width(
+                ensemble_data.max_depth - 1, builtin.IndexType()
+            )
+        else:
+            ub = trunk.GetTreeDepthOp(ensemble_op, visit_op.tree)
+
+        @Builder.implicit_region((builtin.IndexType(), visit_op.node.type))
+        def iter_block(args: tuple[Any, ...]) -> None:
+            (level, node) = args
+            next_node = trunk.VisitNextNodeOp(
+                tree=visit_op.tree, node=node, data_in=visit_op.data_in, root_node=op.operands[0]
+            )
+            scf.Yield(next_node)
+
+        for_loop = scf.For(
+            lb=zc, step=oc, ub=ub, iter_args=[op.operands[0]], body=iter_block
+        )
+        rewriter.replace_matched_op([zc, oc, ub, for_loop], [for_loop.results[0]])
 
 
 class LowerEnsembleToIterativeTraverse(RewritePattern):
@@ -189,14 +252,13 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
                 leaf_op = trunk.GetLeafOp(tree=tree_element, node=while_loop)
                 leaf_value = trunk.GetLeafValueOp(tree=tree_element, leaf=leaf_op)
                 new_output_tensor_tree = trunk.AggregateLeafOp(
-                    ensemble = ensemble_op,
-                    tree = tree_element,
-                    leaf = leaf_value,
-                    tensor_out = output_tensor_tree,
+                    ensemble=ensemble_op,
+                    tree=tree_element,
+                    leaf=leaf_value,
+                    tensor_out=output_tensor_tree,
                 )
 
                 scf.Yield(new_output_tensor_tree)
-
 
             tree_for = scf.For(
                 lb=zero_const,
@@ -295,4 +357,7 @@ class ConvertCrownToTrunkIterativePass(ModulePass):
     def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
         PatternRewriteWalker(LowerPostTransform()).rewrite_module(op)
         PatternRewriteWalker(LowerEnsembleToIterativeTraverse()).rewrite_module(op)
+        PatternRewriteWalker(
+            ConvertIterativeEnsembleToPerfectIterativeMaybe()
+        ).rewrite_module(op)
         op.verify()

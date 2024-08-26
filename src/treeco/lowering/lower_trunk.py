@@ -212,6 +212,12 @@ class LowerIsLeaf(RewritePattern):
         )
 
         out_bool = arith.Cmpi(operand1=feature_idx, operand2=n_features_const, arg="ne")
+        # TODO: Add the print as optional
+        print_list = list()
+        pext = arith.ExtUIOp(out_bool, builtin.IntegerType(64))
+        pr = printf.PrintFormatOp("IS_LEAF_CHECK Feature: {} , n_features: {}, cmp_out {}", feature_idx, n_features_const, pext)
+        print_list = [pext, pr]
+        ##### 
         cast_out = treeco.Cast(operand1=cast_in, output_type=op.operands[1].type)
 
         rewriter.replace_matched_op(
@@ -220,7 +226,8 @@ class LowerIsLeaf(RewritePattern):
                 nodes_featureids_data,
                 feature_idx,
                 n_features_const,
-                out_bool,
+                out_bool, ] + 
+                print_list + [
                 cast_out,
             ],
             [cast_out.results[0]],
@@ -307,7 +314,7 @@ def visit_next_node_iterative_rchild(module_op, node_idx, inputs) -> Sequence:
     ]
 
 
-def visit_next_node_iterative_perfect(module_op, node_idx, inputs) -> Sequence:
+def visit_next_node_iterative_perfect(module_op, node_idx, inputs, root_node) -> Sequence:
     zero_constant = arith.Constant.from_int_and_width(0, builtin.IndexType())
     one_constant = arith.Constant.from_int_and_width(1, builtin.IndexType())
     two_constant = arith.Constant.from_int_and_width(2, builtin.IndexType())
@@ -344,18 +351,30 @@ def visit_next_node_iterative_perfect(module_op, node_idx, inputs) -> Sequence:
     if isinstance(input_val.results[0].type, builtin.IntegerType):
         is_signed = input_val.results[0].type.signedness == builtin.Signedness.SIGNED
         cmp = "sgt" if is_signed else "ugt"
+        #cmp = "ugt"
         cmp_out = arith.Cmpi(input_val, threshold_val, cmp)
     else:
         # Ordered -> Neither can be NaN
         cmp_out = arith.Cmpf(input_val, threshold_val, "ogt")
 
+    print_ops = []
+    if isinstance(input_val.results[0].type, builtin.IntegerType):
+        pext = arith.ExtUIOp(input_val, builtin.IntegerType(64))
+        print_ops.append(pext)
+    else:
+        pext = input_val
+    pext2 = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
+    pr2 = printf.PrintFormatOp("VISIT_LOOP: Feature: {} , input_val {}, cmp_out {}", feature_idx, pext, pext2)
+    print_ops.extend([pext2, pr2])
     # Block to get to the new node from the current idx
-    # new_node = 2*node_idx + cmp_out + 1
+    # new_node = 2*(node_idx) + cmp_out + 1 - node_root_idx
     new_node_mul = arith.Muli(node_idx, two_constant, result_type=builtin.IndexType())
     cmp_out_int = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
     cmp_out_idx = arith.IndexCastOp(cmp_out_int, builtin.IndexType())
     add_cmp = arith.Addi(cmp_out_idx, new_node_mul, result_type=builtin.IndexType())
     new_node_idx = arith.Addi(add_cmp, one_constant, result_type=builtin.IndexType())
+    root_node_idx = treeco.Cast(operand1=root_node, output_type=builtin.IndexType())
+    shifted_new_node_idx = arith.Subi(new_node_idx, root_node_idx, result_type=builtin.IndexType())
 
     return [
         zero_constant,
@@ -366,12 +385,13 @@ def visit_next_node_iterative_perfect(module_op, node_idx, inputs) -> Sequence:
         threshold_val,
         feature_idx,
         input_val,
-        cmp_out,
-        new_node_mul,
+        cmp_out,] + print_ops + [new_node_mul,
         cmp_out_int,
         cmp_out_idx,
         add_cmp,
         new_node_idx,
+        root_node_idx,
+        shifted_new_node_idx
     ]
 
 
@@ -393,14 +413,17 @@ class LowerVisitNextNode(RewritePattern):
         rewriter: PatternRewriter,
     ):
         node_idx = treeco.Cast(operand1=op.operands[1], output_type=builtin.IndexType())
+        # TODO: I can also understand it by using this, but i still need to understand if rchild / lchild
+        # are there
         if self.nodes_mode == "rchild":
             ops = visit_next_node_iterative_rchild(
                 op.get_toplevel_object(), node_idx, op.operands[2]
             )
         elif self.nodes_mode == "perfect":
             ops = visit_next_node_iterative_perfect(
-                op.get_toplevel_object(), node_idx, op.operands[2]
+                op.get_toplevel_object(), node_idx, op.operands[2], op.root_node
             )
+
         cast_out = treeco.Cast(operand1=ops[-1], output_type=op.results[0].type)
         rewriter.replace_matched_op(
             [
@@ -463,7 +486,7 @@ class LowerGetLeafOp(RewritePattern):
             )
             # In this case the tree was perfect...,
             if leaf_global is None:
-                name = THRESHOLD_DATA
+                name = FEATUREIDS_DATA
                 # TODO : Can i store it in the feature_id? Or is it better in the thresholds?
                 leaf_global = find_global_mlprogram_by_name(
                     module_op=op.get_toplevel_object(), name=name
@@ -479,11 +502,13 @@ class LowerGetLeafOp(RewritePattern):
         if not isinstance(to_be_recasted.results[0].type, builtin.IndexType):
             to_be_recasted = arith.IndexCastOp(to_be_recasted, builtin.IndexType())
             additional_ops.append(to_be_recasted)
+        pr = printf.PrintFormatOp("GET_LEAF_OP: Node_in: {}, Leaf_out: {}", cast_in, to_be_recasted)
         cast_out = treeco.Cast(operand1=to_be_recasted, output_type=op.results[0].type)
         rewriter.replace_matched_op(
             [cast_in]
             + additional_ops
             + [
+                pr,
                 cast_out,
             ],
             [cast_out.results[0]],

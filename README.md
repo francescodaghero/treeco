@@ -7,9 +7,19 @@ Optimizations such as leaf/node quantization, logits-> vote conversion for Rando
 
 For an optimized version of this package targeting RISC-V, please refer to the original framework: [Eden](https://github.com/eml-eda/eden).
 
-## An example 
-### IR
-Crown is the highest level dialect after the ONNXML IR. Here most optimization passes that change the structure of the tree are performed.
+### TreeCo Dialects
+TreeCo implements three dialects:
+- Crown: for high-level modeling of the inference of the ensemble. The dialect is compact and useful to perform optimization that change the structure of the ensemble (e.g. tree pruning, tree padding).
+- Trunk: designed for mid-level modeling of the inference, focusing specifically on the tree visit algorithm (e.g. fully unrolled, iterative, vectorized...) and related optimizations (e.g. tree peeling).
+- Treeco: dialect implementing custom data types for the ensembles (node, tree, ensemble..) and few operations for casting operators.
+
+Noteworthy, since we stick to Python for the whole stack, all modification to the ensemble (e.g. padding) are done on a easy-to-navigate python class (found under model/ensemble.py).
+This class also implements a (slow) predict function, fully independent from the ir.
+See an example of standalone usage in the test cases.
+
+Following here some examples of the IRs.
+
+#### Crown
 ```mlir
 builtin.module {
   func.func public @inference(%arg0 : memref<2x10xf32>, %arg1 : memref<2x3xf32>) {
@@ -18,7 +28,7 @@ builtin.module {
   }
 }
 ```
-Then we lower to Trunk (here a shortened version), a dialect that models more precisely the tree visit algorithm.
+#### Trunk
 ```mlir
   func.func public @inference(%arg0: memref<2x10xf32>, %arg1: memref<2x3xf32>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<2x10xf32>
@@ -43,34 +53,49 @@ Then we lower to Trunk (here a shortened version), a dialect that models more pr
         }
   ...
 ```
-Finally, this can be lowered to LLVM IR.
 
-### The flow
-Given an onnx file storing only the model.
+## How to use: 
+### Setup
+First, generate an onnx file that contains your tree ensemble. 
+You can obtain one from a scikit-learn model using [skl2onnx](https://onnx.ai/sklearn-onnx/) (see the test cases for an example).
+Currently TreeCo supports both [TreeEnsembleClassifier](https://onnx.ai/onnx/operators/onnx_aionnxml_TreeEnsembleClassifier.html) or [TreeEnsembleRegressor](https://onnx.ai/onnx/operators/onnx_aionnxml_TreeEnsembleRegressor.html).
+
+### Importing in Treeco
+Importing the onnx file in TreeCo should be straighforward, and requires only calling the Parser.
 ```python
-from treeco.compiler import *
-from treeco.model import Ensemble
-from treeco.dialects import treeco, crown
-from treeco.utils import find_operation_in_module
-import numpy as np
-from treeco.targets.llvm.library import compile_as_library, run_inference
-
-ensemble_ast = parse_ensemble("rf.onnx")
-ensemble_ir, ctx = generate_ir(ensemble_ast, batch_size=2)
-module_op = crown_transform(ensemble_ir, ctx)
-# Lower to Trunk 
-module_op = trunk_transform(module_op, ctx)
-# Exit from TreeCo.
-module_op = target_transform(module_op, ctx, target="llvm")
-
-# Compiles the inference function as a shared library and imports it via ctypes
-lib = compile_as_library(".", "output.mlir")
-run_inference(
-    lib,
-    test_data,
-    buffer_out := np.zeros((batch_size, ensemble_data.n_targets), dtype=np.float32),
-)
+ensemble_ast = parse_ensemble("model.onnx")
+ensemble_ir, ctx = generate_ir(ensemble_ast, batch_size=1)
 ```
+
+At this step, you decide the batch size that the inference function will use. While no parallelization is currently implemented, I wanted higher flexibility from the beginning.
+The variable ensemble_ir stores the IR of the model, using a TreeCo dialect named ONNX-ML, that is, a close mirror of the onnx-ml operations.
+
+N.B. A batch size of 1 will still generate a for loop of with upper bound 1, optimized away while lowering.
+
+### Lowering : from ONNX-ML IR to LLVM IR
+The lowering can be fully performed in python and does not depend on MLIR until the bufferization pass (i.e. after lowering Trunk to Arith/Ml_Program).
+
+Continuing from the code snippet above:
+```python
+from treeco.compiler import crown_transform, trunk_transform, root_transform
+# Lowers from onnxml to crown and performs crown-related optimization passes
+# (Listed as argument of the function)
+ensemble_ir = crown_transform(ensemble_ir, ctx)
+# From crown to trunk
+ensemble_ir = trunk_transform(ensemble_ir, ctx)
+# From Trunk to Arith/ML_Program/Tensor. Then performs bufferization 
+ensemble_ir = root_transform(ensemble_ir, ctx)
+# Lowers to LLVM IR, requires MLIR and cannot currently be parsed back to python.
+target_transform_and_dump("output.mlir", module_op=ensemble_ir, ctx=ctx)
+```
+The ensemble file can then be compiled as shared library and run or a main function can be added (see treeco/targets/llvm/standalone.py/AddLLVMMainPass()) for a standalone file.
+An example:
+```python3
+# To be added before calling target_transform_and_dump
+from treeco.targets.llvm import AddLLVMMainPass
+AddLLVMMainPass().apply(ctx, ensemble_ir, test_data=data_test)
+```
+The output mlir file can be then translated to llvm and compiled with clang.
 
 ## Why not using X/Y/Z?
 Many available frameworks focus on tensor-level operations while tree ensemble generally need scalar ones. Implementing them in other frameworks can rapidly become tricky.

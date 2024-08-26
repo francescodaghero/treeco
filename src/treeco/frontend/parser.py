@@ -58,15 +58,15 @@ class Parser:
             model = onnx.load(f)
         for i, node in enumerate(model.graph.node):
             if node.op_type == "TreeEnsembleClassifier":
-                return self._parseTreeEnsembleClassifier(node)
+                return self._parseTreeEnsembleClassifier(node, graph = model.graph)
             elif node.op_type == "TreeEnsembleRegressor":
-                return self._parseTreeEnsembleRegressor(node)
+                return self._parseTreeEnsembleRegressor(node, graph = model.graph)
             elif node.op_type == "TreeEnsemble":
                 logging.info(f"Found TreeEnsemble {node}")
-                return self._parseTreeEnsemble(node)
+                return self._parseTreeEnsemble(node, graph = model.graph)
         raise ParseError("Model does not contain a TreeEnsemble op")
 
-    def _parseTreeEnsembleClassifier(self, node: onnx.NodeProto) -> Mapping:
+    def _parseTreeEnsembleClassifier(self, node: onnx.NodeProto, graph : onnx.GraphProto) -> Mapping:
         """
         Private method to parse the TreeEnsembleClassifier node
 
@@ -83,6 +83,7 @@ class Parser:
         attributes_dict: Mapping[str, onnx.AttributeProto] = {}
         for attr in node.attribute:
             attributes_dict[attr.name] = onnx.helper.get_attribute_value(attr)
+        n_classes = len(set(attributes_dict["class_ids"]))
 
         if "nodes_missing_value_tracks_true" in attributes_dict:
             all(v == 0 for v in attributes_dict["nodes_missing_value_tracks_true"])
@@ -90,14 +91,14 @@ class Parser:
         # Additional control variables
         if "base_values" not in attributes_dict:
             attributes_dict["base_values"] = [
-                0.0 for _ in range(len(set(attributes_dict["class_ids"])))
+                0.0 for _ in range(n_classes)
             ]
 
-        attributes_dict["input_shape"] = max(attributes_dict["nodes_featureids"]) + 1
-        attributes_dict["output_shape"] = max(attributes_dict["class_ids"]) + 1
+        attributes_dict["input_shape"] = graph.input[0].type.tensor_type.shape.dim[1].dim_value
+        attributes_dict["output_shape"] = n_classes
         return attributes_dict
 
-    def _parseTreeEnsembleRegressor(self, node: onnx.NodeProto):
+    def _parseTreeEnsembleRegressor(self, node: onnx.NodeProto, graph : onnx.GraphProto) -> Mapping:
         """
         Private method to parse the TreeEnsembleRegressor node
 
@@ -124,6 +125,6 @@ class Parser:
                 0.0 for _ in np.asarray(attributes_dict["target_ids"]).unique()
             ]
 
-        attributes_dict["input_shape"] = len(set(attributes_dict["nodes_featureids"]))
-        attributes_dict["output_shape"] = 1
+        attributes_dict["input_shape"] = graph.input[0].type.tensor_type.shape.dim[1].dim_value
+        attributes_dict["output_shape"] = graph.output[1].type.tensor_type.shape.dim[1].dim_value
         return attributes_dict

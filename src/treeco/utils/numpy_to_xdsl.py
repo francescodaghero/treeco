@@ -72,8 +72,6 @@ def convert_np_to_tensor(
         )
         xdsl_attr = IntegerAttr
     elif "float" in tipo:
-        if is_signless:
-            raise ValueError("Got float tensor and signless flag")
         # The only supported atm
         xdsl_type = Float32Type()
         xdsl_attr = FloatAttr

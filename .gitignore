@@ -1,6 +1,7 @@
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,data,vim,c,c++
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,data,vim,c,c++
+tmp/
 *.onnx
 *.mlir
 *.ll

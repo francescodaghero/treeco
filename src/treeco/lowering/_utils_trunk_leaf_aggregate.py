@@ -78,7 +78,7 @@ def _aggregate_leaf_tensors_sum_single(
     zc = arith.Constant.from_int_and_width(0, builtin.IndexType())
     leaf_value = tensor.ExtractOp.get(
         tensor=leaf_tensor,
-        indices=[tree_idx if load_on_tree_idx else zc],
+        indices=[zc, tree_idx if load_on_tree_idx else zc],
     )
     sub_output = tensor.ExtractOp.get(
         tensor=output_tensor,
@@ -86,7 +86,7 @@ def _aggregate_leaf_tensors_sum_single(
     )
 
     add_ops = list()
-    if isinstance(sub_output.results[0].type.get_element_type(), builtin.IntegerType):
+    if isinstance(sub_output.results[0].type, builtin.IntegerType):
         cast_in_output = treeco.CastSignOp(
             operand1=sub_output,
             res=builtin.IntegerType(
@@ -112,8 +112,8 @@ def _aggregate_leaf_tensors_sum_single(
         add_ops += [cast_in_output, cast_in_leaf, added_tensor, cast_out]
     else:
         added_tensor = arith.Addf(
-            operand1=cast_in_output,
-            operand2=cast_in_leaf,
+            operand1=sub_output,
+            operand2=leaf_value,
         )
         add_ops += [added_tensor]
 

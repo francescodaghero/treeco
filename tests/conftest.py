@@ -59,7 +59,7 @@ def generate_and_save_models():
 
     tree_depths = [2]
     n_estimators_list = [2]
-    n_classes_list = [3]
+    n_classes_list = [2]
     bits_input = [None]
 
     classification_tests = itertools.product(

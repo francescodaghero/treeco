@@ -15,8 +15,8 @@ class ExtractOp(IRDLOperation):
     name = "tensor.extract"
 
     tensor: Operand = operand_def(TensorType)
-    indices: VarOperand = var_operand_def(IndexType)
-    result: OpResult = result_def()
+    indices = var_operand_def(IndexType)
+    result= result_def()
 
     @classmethod
     def get(

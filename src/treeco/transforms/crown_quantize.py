@@ -39,7 +39,7 @@ class QuantizeInput(RewritePattern):
         )
         ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
         # TODO : Check if operand is actually a block argument
-        rewriter.modify_block_argument_type(
+        rewriter.modify_value_type(
             idata,
             MemRefType(
                 element_type=new_etype,
@@ -76,7 +76,7 @@ class RoundInput(RewritePattern):
         ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
         # TODO : Check if operand is actually a block argument
         # TODO : Make the type conversion depend on the input type, not a static one
-        rewriter.modify_block_argument_type(
+        rewriter.modify_value_type(
             idata,
             MemRefType(
                 element_type=new_etype,
@@ -115,7 +115,7 @@ class QuantizeLeaves(RewritePattern):
         )
 
         # Regenerate the block argument
-        rewriter.modify_block_argument_type(
+        rewriter.modify_value_type(
             op.operands[1],
             MemRefType(
                 element_type=new_etype,

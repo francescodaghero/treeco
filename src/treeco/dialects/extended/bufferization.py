@@ -10,21 +10,6 @@ from xdsl.irdl import opt_prop_def, var_result_def, VarOpResult, AnyAttr
 
 
 @irdl_op_definition
-class ToMemrefOp(IRDLOperation):
-    name = "bufferization.to_memref"
-
-    tensor = operand_def(TensorType)
-    result = result_def(MemRefType)
-
-    def __init__(
-        self,
-        tensor: SSAValue,
-        memref_type: MemRefType,
-    ):
-        super().__init__(operands=[tensor], result_types=[memref_type])
-
-
-@irdl_op_definition
 class MaterializeInDestinationOp(IRDLOperation):
     name = "bufferization.materialize_in_destination"
 
@@ -77,6 +62,6 @@ class MaterializeInDestinationOp(IRDLOperation):
 
 Bufferization = Dialect(
     "bufferization",
-    [o for o in Bufferization.operations] + [ToMemrefOp, MaterializeInDestinationOp],
+    [o for o in Bufferization.operations] + [MaterializeInDestinationOp],
     [o for o in Bufferization.attributes] + [],
 )

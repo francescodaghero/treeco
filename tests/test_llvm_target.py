@@ -253,4 +253,4 @@ def test_llvm_with_main(
 
     output = compile_and_run(build_dir=tmpdir, mlir_path=fname)
     output = np.asarray(output)
-    assert np.allclose(golden_out[:batch_size], output)
+    assert np.allclose(golden_out[:batch_size], output), f"Expected {golden_out[:batch_size]} but got {output}"

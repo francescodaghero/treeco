@@ -75,7 +75,7 @@ def generate_main_function(
     )
 
     # Input buffer becomes a global memref.
-    input_global_op = memref.Global.get(
+    input_global_op = memref.GlobalOp.get(
         sym_name=builtin.StringAttr("input_data"),
         sym_type=inference_func.args[0].type,
         initial_value=data_in,
@@ -84,7 +84,7 @@ def generate_main_function(
         alignment=None,
     )
     # Output buffer becomes a global memref.
-    output_global_op = memref.Global.get(
+    output_global_op = memref.GlobalOp.get(
         sym_name=builtin.StringAttr("output_data"),
         sym_type=inference_func.args[1].type,
         initial_value=data_out,
@@ -94,11 +94,11 @@ def generate_main_function(
     )
 
     # Get the globals
-    input_global_get = memref.GetGlobal(
+    input_global_get = memref.GetGlobalOp(
         name="input_data",
         return_type=data_in_memref_type,
     )
-    output_global_get = memref.GetGlobal(
+    output_global_get = memref.GetGlobalOp(
         name="output_data",
         return_type=data_out_memref_type,
     )
@@ -119,7 +119,7 @@ def generate_main_function(
         body=Region(loop_block),
     )
     with ImplicitBuilder(loop_block) as (idx,):
-        input_slice = memref.Subview.get(
+        input_slice = memref.SubviewOp.get(
             source=input_global_get,
             offsets=[idx, 0],
             sizes =[batch_size, n_features],
@@ -134,7 +134,7 @@ def generate_main_function(
             )
             #inference_func.args[0].type,
         )
-        output_slice = memref.Subview.get(
+        output_slice = memref.SubviewOp.get(
             source=output_global_get,
             offsets=[idx, 0],
             sizes=[batch_size, n_outputs],
@@ -148,20 +148,20 @@ def generate_main_function(
                 )
             )
         )
-        input_slice_simple = memref.Cast.get(
+        input_slice_simple = memref.CastOp.get(
             source=input_slice,
             type=inference_func.args[0].type,
         )
-        output_slice_simple = memref.Cast.get(
+        output_slice_simple = memref.CastOp.get(
             source = output_slice,
             type=inference_func.args[1].type,
         )
-        call = func.Call(
+        call = func.CallOp(
             "inference",
             arguments=[input_slice_simple, output_slice_simple],
             return_types=[],
         )
-        scf.Yield()
+        scf.YieldOp()
 
     out_const = arith.ConstantOp.from_int_and_width(n_outputs, builtin.IndexType())
     print_block = Block(arg_types=(builtin.IndexType(),))
@@ -183,15 +183,15 @@ def generate_main_function(
             body= Region(print_block),
         )
         with ImplicitBuilder(print_block) as (idx,):
-            output_val = memref.Load.get(
+            output_val = memref.LoadOp.get(
                 ref=output_global_get,
                 indices=[batch_idx, idx],
             )
             if isinstance(inference_func.args[1].type.element_type, builtin.IntegerType):
                 output_val = arith.ExtUIOp(op = output_val, target_type = builtin.IntegerType(64, builtin.Signedness.SIGNLESS))
             pr = printf.PrintFormatOp("OUTPUT[{}][{}]={}",batch_idx, idx, output_val)
-            scf.Yield()
-        scf.Yield()
+            scf.YieldOp()
+        scf.YieldOp()
 
     r = func.ReturnOp()
     main_block.add_ops(

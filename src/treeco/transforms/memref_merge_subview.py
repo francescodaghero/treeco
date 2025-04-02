@@ -52,13 +52,13 @@ class FoldMemRefSubViewChain(RewritePattern):
 
         for i, offset in enumerate(op.static_offsets.data.data):
             # A dynamic dimension
-            if offset.data == I64_MIN:
+            if offset == I64_MIN:
                 dimension_map[i] = op.offsets[n_dynamic_dims]
                 n_dynamic_dims += 1
             # A static dimension
-            elif offset.data != 0:
+            elif offset != 0:
                 dimension_map[i] = arith.ConstantOp.from_int_and_width(
-                    offset.data, builtin.IndexType()
+                    offset, builtin.IndexType()
                 )
 
         # Nothing to do, no static offsets or dynamic ones

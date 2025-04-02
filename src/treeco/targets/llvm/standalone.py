@@ -37,6 +37,19 @@ class AddLLVMMain(RewritePattern):
         main = generate_main_function(inference_module_op=op, test_data=self.test_data)
         pos = InsertPoint.at_end(op.body.block)
         rewriter.inline_block(main.body.block, pos)
+    
+
+def add_llvm_main(op: ModuleOp, test_data: Optional[np.array] = None):
+    main_func = find_func(op, "main")
+    # Avoids multiple calls, only one main should be present!
+    if main_func is not None:
+        return
+    main = generate_main_function(inference_module_op=op, test_data=test_data)
+    pos = InsertPoint.at_end(op.body.block)
+    for operation in main.body.block.ops:
+        operation.detach()
+        pos.block.add_ops([operation])
+
 
 
 class AddLLVMMainPass(ModulePass):
@@ -44,7 +57,7 @@ class AddLLVMMainPass(ModulePass):
 
     def apply(self, ctx: Context, op: ModuleOp, test_data: Optional[np.array] = None):
         # Get the base main function
-        PatternRewriteWalker(AddLLVMMain(test_data)).rewrite_module(op)
+        add_llvm_main(op, test_data)
         PrintfToLLVM().apply(ctx, op)
 
 

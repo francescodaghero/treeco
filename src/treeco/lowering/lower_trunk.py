@@ -371,8 +371,8 @@ def visit_next_node_iterative_perfect(module_op, node_idx, inputs, root_node) ->
     else:
         pext = input_val
     pext2 = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
-    pr2 = printf.PrintFormatOp("VISIT_LOOP: Feature: {} , input_val {}, cmp_out {}", feature_idx, pext, pext2)
-    print_ops.extend([pext2, pr2])
+    #pr2 = printf.PrintFormatOp("VISIT_LOOP: Feature: {} , input_val {}, cmp_out {}", feature_idx, pext, pext2)
+    print_ops.extend([pext2])
     # Block to get to the new node from the current idx
     # new_node = 2*(node_idx) + cmp_out + 1 - node_root_idx
     new_node_mul = arith.MuliOp(node_idx, two_constant, result_type=builtin.IndexType())
@@ -509,13 +509,13 @@ class LowerGetLeafOp(RewritePattern):
         if not isinstance(to_be_recasted.results[0].type, builtin.IndexType):
             to_be_recasted = arith.IndexCastOp(to_be_recasted, builtin.IndexType())
             additional_ops.append(to_be_recasted)
-        pr = printf.PrintFormatOp("GET_LEAF_OP: Node_in: {}, Leaf_out: {}", cast_in, to_be_recasted)
+        #pr = printf.PrintFormatOp("GET_LEAF_OP: Node_in: {}, Leaf_out: {}", cast_in, to_be_recasted)
         cast_out = treeco.Cast(operand1=to_be_recasted, output_type=op.results[0].type)
         rewriter.replace_matched_op(
             [cast_in]
             + additional_ops
             + [
-                pr,
+                #pr,
                 cast_out,
             ],
             [cast_out.results[0]],

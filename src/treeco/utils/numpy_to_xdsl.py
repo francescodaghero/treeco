@@ -1,6 +1,4 @@
 import numpy as np
-from typing import Mapping
-from treeco.dialects import emitc
 from xdsl.dialects.builtin import (
     ArrayAttr,
     StringAttr,
@@ -11,8 +9,6 @@ from xdsl.dialects.builtin import (
     IntegerAttr,
     IndexType,
     DenseIntOrFPElementsAttr,
-    DenseResourceAttr,
-    TensorType,
     f32,
 )
 

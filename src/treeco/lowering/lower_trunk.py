@@ -5,17 +5,17 @@ Lowers the trunk dialect
 from xdsl.passes import ModulePass
 from xdsl.dialects import printf
 from treeco.utils import convert_np_to_tensor
-from xdsl.context import MLContext
+from xdsl.context import Context
 from treeco.dialects import trunk, treeco
 from treeco.model.ensemble import Ensemble
 from typing import Optional
-from xdsl.dialects import builtin, arith, scf
+from xdsl.dialects import builtin, arith, scf, tensor
 from xdsl.dialects.builtin import StringAttr
 from xdsl.rewriter import InsertPoint
 from typing import Sequence
 
 from treeco.lowering._utils_trunk_leaf_aggregate import _aggregate_leaf_tensors
-from treeco.dialects.extended import tensor, ml_program
+from treeco.dialects.extended import ml_program
 from treeco.utils import I64_MIN
 from xdsl.pattern_rewriter import (
     PatternRewriter,
@@ -130,9 +130,10 @@ class LowerGetRoot(RewritePattern):
             result_type=root_global_op.value.type,
         )
         # Load the correct index
-        root_idx = tensor.ExtractOp.get(
+        root_idx = tensor.ExtractOp(
             tensor=roots_tensor,
             indices=root_cast_in,
+            result_type= roots_tensor.results[0].type.get_element_type()
         )
         root_cast_out = treeco.Cast(
             operand1=root_idx, output_type=op.results[0].type
@@ -203,12 +204,13 @@ class LowerIsLeaf(RewritePattern):
         )
 
         # Load the correct index
-        feature_idx = tensor.ExtractOp.get(
+        feature_idx = tensor.ExtractOp(
             tensor=nodes_featureids_data,
             indices=cast_in,
+            result_type=nodes_featureids_data.type.get_element_type()
         )
-        n_features_const = arith.Constant.from_int_and_width(
-            n_features, feature_idx.results[0].type
+        n_features_const = arith.ConstantOp.from_int_and_width(
+            n_features, feature_idx.type
         )
 
         out_bool = arith.Cmpi(operand1=feature_idx, operand2=n_features_const, arg="ne")
@@ -237,8 +239,8 @@ class LowerIsLeaf(RewritePattern):
 
 
 def visit_next_node_iterative_rchild(module_op, node_idx, inputs) -> Sequence:
-    zero_constant = arith.Constant.from_int_and_width(0, builtin.IndexType())
-    one_constant = arith.Constant.from_int_and_width(1, builtin.IndexType())
+    zero_constant = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+    one_constant = arith.ConstantOp.from_int_and_width(1, builtin.IndexType())
 
     nodes_values_global = find_global_mlprogram_by_name(
         module_op=module_op, name=THRESHOLD_DATA
@@ -265,35 +267,38 @@ def visit_next_node_iterative_rchild(module_op, node_idx, inputs) -> Sequence:
     )
 
     # Load the value
-    threshold_val = tensor.ExtractOp.get(
+    threshold_val = tensor.ExtractOp(
         tensor=nodes_values,
         indices=node_idx,
+        result_type=nodes_values.results[0].type.get_element_type()
     )
-    right_shift= tensor.ExtractOp.get(
+    right_shift= tensor.ExtractOp(
         tensor=nodes_falsenodeids,
         indices=node_idx,
+        result_type=nodes_falsenodeids.results[0].type.get_element_type()
     )
-    feature_idx= tensor.ExtractOp.get(
+    feature_idx= tensor.ExtractOp(
         tensor=nodes_featureids,
         indices=node_idx,
+        result_type= nodes_featureids.results[0].type.get_element_type()
     )
 
-    input_val = tensor.ExtractOp.get(inputs, indices=[zero_constant, feature_idx])
+    input_val = tensor.ExtractOp(inputs, indices=[zero_constant, feature_idx], result_type=inputs.type.get_element_type())
     if isinstance(input_val.results[0].type, builtin.IntegerType):
         is_signed = input_val.results[0].type.signedness == builtin.Signedness.SIGNED
         cmp = "sgt" if is_signed else "ugt"
-        cmp_out = arith.Cmpi(input_val, threshold_val, cmp)
+        cmp_out = arith.CmpiOp(input_val, threshold_val, cmp)
     else:
         # Ordered -> Neither can be NaN
-        cmp_out = arith.Cmpf(input_val, threshold_val, "ogt")
+        cmp_out = arith.CmpfOp(input_val, threshold_val, "ogt")
 
     # Block to get to the new node from the current idx
     # new_node = (node_idx + 1) + (cmp_out * right_shift)
-    node_plus = arith.Addi(node_idx, one_constant, result_type=builtin.IndexType())
+    node_plus = arith.AddiOp(node_idx, one_constant, result_type=builtin.IndexType())
     cmp_out_int = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
     cmp_out_idx = arith.IndexCastOp(cmp_out_int, builtin.IndexType())
-    mul_out = arith.Muli(cmp_out_idx, right_shift, result_type=builtin.IndexType())
-    new_node_idx = arith.Addi(node_plus, mul_out, result_type=builtin.IndexType())
+    mul_out = arith.MuliOp(cmp_out_idx, right_shift, result_type=builtin.IndexType())
+    new_node_idx = arith.AddiOp(node_plus, mul_out, result_type=builtin.IndexType())
 
     return [
         zero_constant,
@@ -315,9 +320,9 @@ def visit_next_node_iterative_rchild(module_op, node_idx, inputs) -> Sequence:
 
 
 def visit_next_node_iterative_perfect(module_op, node_idx, inputs, root_node) -> Sequence:
-    zero_constant = arith.Constant.from_int_and_width(0, builtin.IndexType())
-    one_constant = arith.Constant.from_int_and_width(1, builtin.IndexType())
-    two_constant = arith.Constant.from_int_and_width(2, builtin.IndexType())
+    zero_constant = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+    one_constant = arith.ConstantOp.from_int_and_width(1, builtin.IndexType())
+    two_constant = arith.ConstantOp.from_int_and_width(2, builtin.IndexType())
 
     nodes_values_global = find_global_mlprogram_by_name(
         module_op=module_op, name=THRESHOLD_DATA
@@ -337,25 +342,27 @@ def visit_next_node_iterative_perfect(module_op, node_idx, inputs, root_node) ->
     )
 
     # Load the value
-    threshold_val = tensor.ExtractOp.get(
+    threshold_val = tensor.ExtractOp(
         tensor=nodes_values,
         indices=node_idx,
+        result_type=nodes_values.results[0].type.get_element_type()
     )
 
-    feature_idx= tensor.ExtractOp.get(
+    feature_idx= tensor.ExtractOp(
         tensor=nodes_featureids,
         indices=node_idx,
+        result_type= nodes_featureids.results[0].type.get_element_type()
     )
 
-    input_val = tensor.ExtractOp.get(inputs, indices=[zero_constant, feature_idx])
+    input_val = tensor.ExtractOp(inputs, indices=[zero_constant, feature_idx], result_type=inputs.type.get_element_type())
     if isinstance(input_val.results[0].type, builtin.IntegerType):
         is_signed = input_val.results[0].type.signedness == builtin.Signedness.SIGNED
         cmp = "sgt" if is_signed else "ugt"
         #cmp = "ugt"
-        cmp_out = arith.Cmpi(input_val, threshold_val, cmp)
+        cmp_out = arith.CmpiOp(input_val, threshold_val, cmp)
     else:
         # Ordered -> Neither can be NaN
-        cmp_out = arith.Cmpf(input_val, threshold_val, "ogt")
+        cmp_out = arith.CmpfOp(input_val, threshold_val, "ogt")
 
     print_ops = []
     if isinstance(input_val.results[0].type, builtin.IntegerType):
@@ -368,13 +375,13 @@ def visit_next_node_iterative_perfect(module_op, node_idx, inputs, root_node) ->
     print_ops.extend([pext2, pr2])
     # Block to get to the new node from the current idx
     # new_node = 2*(node_idx) + cmp_out + 1 - node_root_idx
-    new_node_mul = arith.Muli(node_idx, two_constant, result_type=builtin.IndexType())
+    new_node_mul = arith.MuliOp(node_idx, two_constant, result_type=builtin.IndexType())
     cmp_out_int = arith.ExtUIOp(cmp_out, builtin.IntegerType(64))
     cmp_out_idx = arith.IndexCastOp(cmp_out_int, builtin.IndexType())
-    add_cmp = arith.Addi(cmp_out_idx, new_node_mul, result_type=builtin.IndexType())
-    new_node_idx = arith.Addi(add_cmp, one_constant, result_type=builtin.IndexType())
+    add_cmp = arith.AddiOp(cmp_out_idx, new_node_mul, result_type=builtin.IndexType())
+    new_node_idx = arith.AddiOp(add_cmp, one_constant, result_type=builtin.IndexType())
     root_node_idx = treeco.Cast(operand1=root_node, output_type=builtin.IndexType())
-    shifted_new_node_idx = arith.Subi(new_node_idx, root_node_idx, result_type=builtin.IndexType())
+    shifted_new_node_idx = arith.SubiOp(new_node_idx, root_node_idx, result_type=builtin.IndexType())
 
     return [
         zero_constant,
@@ -495,7 +502,7 @@ class LowerGetLeafOp(RewritePattern):
                 global_attr=builtin.SymbolRefAttr(name),
                 result_type=leaf_global.value.type,
             )
-            leaf_idx = tensor.ExtractOp.get(tensor=leaf_idx_store, indices=cast_in)
+            leaf_idx = tensor.ExtractOp(tensor=leaf_idx_store, indices=cast_in, result_type= leaf_global.value.type.get_element_type())
             additional_ops.extend([leaf_idx_store, leaf_idx])
             to_be_recasted = leaf_idx
 
@@ -595,7 +602,7 @@ class LowerAggregateLeafOp(RewritePattern):
 class LowerTrunkPass(ModulePass):
     name = "lower-trunk"
 
-    def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
+    def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         lowering_pass = PartialLowerEnsemble()
         PatternRewriteWalker(lowering_pass).rewrite_module(op)
         # Retrieve the data

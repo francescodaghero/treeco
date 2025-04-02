@@ -7,7 +7,7 @@ The only change is the import of the custom ml_program dialect declared in treec
 
 from typing import Any, cast
 
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects import bufferization, memref
 from treeco.dialects.extended import ml_program
 from xdsl.dialects.builtin import (
@@ -39,7 +39,7 @@ class ConvertGlobalPattern(RewritePattern):
         new_type = memref.MemRefType(op_type.element_type, op_type.shape)
         rewriter.replace_matched_op(
             (
-                memref.Global.get(
+                memref.GlobalOp.get(
                     op.sym_name,
                     new_type,
                     op.value,
@@ -60,7 +60,7 @@ class ConvertGlobalLoadConst(RewritePattern):
         new_type = memref.MemRefType(op_type.element_type, op_type.shape)
         rewriter.replace_matched_op(
             (
-                mem := memref.GetGlobal(op.global_attr, new_type),
+                mem := memref.GetGlobalOp(op.global_attr, new_type),
                 bufferization.ToTensorOp(mem.memref, restrict=True, writable=False),
             )
         )
@@ -76,7 +76,7 @@ class ConvertMlProgramToMemrefPass(ModulePass):
 
     name = "convert-ml-program-to-memref"
 
-    def apply(self, ctx: MLContext, op: ModuleOp) -> None:
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [

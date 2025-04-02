@@ -16,6 +16,7 @@ from xdsl.irdl import (
     attr_def,
     IRDLOperation,
     operand_def,
+    opt_result_def
 )
 from xdsl.dialects.builtin import (
     AnyFloat,
@@ -48,6 +49,7 @@ class TreeEnsembleOp(IRDLOperation):
     name = "crown.tree_ensemble_predict"
     buffer_in = operand_def(MemRefType)
     buffer_out = operand_def(MemRefType)
+    result = opt_result_def()
 
     # Attributes
     ensemble = attr_def(TreeEnsembleAttr)
@@ -60,6 +62,7 @@ class TreeEnsembleOp(IRDLOperation):
     ):
         super().__init__(
             operands=[buffer_in, buffer_out],
+            result_types=[None],
             attributes={
                 "ensemble": ensemble_attr,
             },

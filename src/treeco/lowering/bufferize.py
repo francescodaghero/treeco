@@ -1,9 +1,9 @@
 from .mlir_opt import mlir_opt_pass
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp
 
 
-def bufferize_pass(module_op: ModuleOp, ctx: MLContext):
+def bufferize_pass(module_op: ModuleOp, ctx: Context):
     mlir_opt_pass(
         module_op,
         ctx,

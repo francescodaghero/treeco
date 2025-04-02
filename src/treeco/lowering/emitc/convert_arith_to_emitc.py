@@ -1,4 +1,4 @@
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import (
     ModuleOp,
     IndexType,
@@ -126,7 +126,7 @@ class IndexCastToCast(RewritePattern):
 
 class ConstantToConstant(RewritePattern):
     @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: arith.Constant, rewriter: PatternRewriter):
+    def match_and_rewrite(self, op: arith.ConstantOp, rewriter: PatternRewriter):
         new_op = emitc.Constant(
             value=op.value,
         )
@@ -134,7 +134,7 @@ class ConstantToConstant(RewritePattern):
 
 
 class ConvertArithToEmitcPass(ModulePass):
-    def apply(self, ctx: MLContext, op: ModuleOp) -> None:
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [

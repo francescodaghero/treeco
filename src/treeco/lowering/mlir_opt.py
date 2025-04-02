@@ -4,7 +4,7 @@ Mlir-opt with some default passes
 
 from xdsl.transforms.mlir_opt import MLIROptPass
 from xdsl.dialects.builtin import ModuleOp
-from xdsl.context import MLContext
+from xdsl.context import Context
 import shutil
 import os
 from typing import List
@@ -12,7 +12,7 @@ from typing import List
 
 def mlir_opt_pass(
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
     additional_args: List = [],
     allow_unregistered_dialects: bool = True,
     mlir_opt_path: str = "",

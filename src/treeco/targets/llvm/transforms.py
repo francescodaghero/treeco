@@ -1,4 +1,4 @@
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp
 from treeco.lowering import convert_scf_to_cf_pass
 from xdsl.transforms.printf_to_llvm import PrintfToLLVM
@@ -8,7 +8,7 @@ from treeco.utils import dump_ir
 def dump_to_llvm(
     target_path: str,
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
 ):
     """
     Writes the module_op to the target_path in LLVM dialect.
@@ -36,7 +36,7 @@ def dump_to_llvm(
 def target_transform_and_dump(
     output_path: str,
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
 ) -> ModuleOp:
     """
     Writes to output_path the IR lowered to LLVM IR.
@@ -48,7 +48,7 @@ def target_transform_and_dump(
         The output file name where the LLVM IR is written.
     module_op : ModuleOp
         The program IR
-    ctx : MLContext
+    ctx : Context
         The program context
 
     Returns

@@ -1,4 +1,4 @@
-""" 
+"""
 Merge chains of chains of subviews of chains of subviews that end in load/stores ops.
 Supports only subviews handling offsets, not sizes or strides.
 Simplifies the readability, possibly simplifies codegen/bufferization/etc
@@ -14,7 +14,7 @@ from xdsl.pattern_rewriter import (
     op_type_rewrite_pattern,
 )
 from xdsl.passes import ModulePass
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects import builtin, arith
 from treeco.utils import I64_MIN
 from xdsl.pattern_rewriter import (
@@ -29,7 +29,7 @@ class FoldMemRefSubViewChain(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(
         self,
-        op: memref.Subview,
+        op: memref.SubviewOp,
         # Tensor part currently disabled
         # | tensor.ExtractSliceOp,
         rewriter: PatternRewriter,
@@ -57,7 +57,7 @@ class FoldMemRefSubViewChain(RewritePattern):
                 n_dynamic_dims += 1
             # A static dimension
             elif offset.data != 0:
-                dimension_map[i] = arith.Constant.from_int_and_width(
+                dimension_map[i] = arith.ConstantOp.from_int_and_width(
                     offset.data, builtin.IndexType()
                 )
 
@@ -99,13 +99,13 @@ class FoldMemRefSubViewChain(RewritePattern):
                         # Case 0: Constant with value = 0, we swap it, to avoid an additional sum
                         # N.B. No constant op is removed.
                         if (
-                            isinstance(operand.owner, arith.Constant)
+                            isinstance(operand.owner, arith.ConstantOp)
                             and operand.op.properties["value"].value.data == 0
                         ):
                             new_dims.append(new_operand)
                         # Case 1: Constant with value != 0, we sum it
-                        elif isinstance(operand.owner, arith.Constant) and isinstance(
-                            new_operand, arith.Constant
+                        elif isinstance(operand.owner, arith.ConstantOp) and isinstance(
+                            new_operand, arith.ConstantOp
                         ):
                             # Sum it, both are indices
                             new_idx = arith.Addi(
@@ -155,7 +155,7 @@ class FoldMemRefSubViewChain(RewritePattern):
         # Add the constants before the op
         if rewriter.has_done_action:
             rewriter.insert_op(
-                [o for o in dimension_map.values() if isinstance(o, arith.Constant)],
+                [o for o in dimension_map.values() if isinstance(o, arith.ConstantOp)],
                 InsertPoint.before(op),
             )
             rewriter.has_done_action
@@ -170,7 +170,7 @@ class MergeSubviewSlices(RewritePattern):
     """
 
     @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: memref.Subview, rewriter: PatternRewriter):
+    def match_and_rewrite(self, op: memref.SubviewOp, rewriter: PatternRewriter):
         # Check all ops using the subview,
         # Try to merge the idx of the Subview into the Loads and Stores
         # TODO: Implement this
@@ -202,8 +202,8 @@ class MergeSubviewSlices(RewritePattern):
         # Check that only supported OP will have the input modified
         for user in op.results[0].uses:
             if not (
-                isinstance(user.operation, memref.Load)
-                or isinstance(user.operation, memref.Store)
+                isinstance(user.operation, memref.LoadOp)
+                or isinstance(user.operation, memref.StoreOp)
             ):
                 return
 
@@ -237,14 +237,14 @@ class MergeSubviewSlices(RewritePattern):
                 else:
                     new_offsets.append(off_op)
 
-            if isinstance(user, memref.Load):
+            if isinstance(user, memref.LoadOp):
                 # Merge the idx lists
                 # Add the new indices
 
-                new_op = memref.Load.get(ref=op.operands[0], indices=new_offsets)
+                new_op = memref.LoadOp.get(ref=op.operands[0], indices=new_offsets)
                 rewriter.replace_op(user, new_op, [new_op.results[0]])
-            elif isinstance(user, memref.Store):
-                new_op = memref.Store.get(
+            elif isinstance(user, memref.StoreOp):
+                new_op = memref.StoreOp.get(
                     ref=op.operands[0], indices=new_offsets, value=user.operands[0]
                 )
                 rewriter.replace_op(user, new_op, [])
@@ -254,6 +254,6 @@ class MergeSubviewSlices(RewritePattern):
 class FoldMemRefSubViewChainPass(ModulePass):
     name = "fold-subview-chain-pass"
 
-    def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
+    def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         PatternRewriteWalker(FoldMemRefSubViewChain()).rewrite_module(op)
         op.verify()

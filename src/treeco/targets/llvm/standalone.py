@@ -5,7 +5,7 @@ from xdsl.dialects.builtin import (
 )
 from typing import Optional
 
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.passes import ModulePass
 from xdsl.transforms.printf_to_llvm import PrintfToLLVM
 from treeco.targets.codegen_main import generate_main_function, find_func
@@ -42,7 +42,7 @@ class AddLLVMMain(RewritePattern):
 class AddLLVMMainPass(ModulePass):
     name = "generate-and-add-main"
 
-    def apply(self, ctx: MLContext, op: ModuleOp, test_data: Optional[np.array] = None):
+    def apply(self, ctx: Context, op: ModuleOp, test_data: Optional[np.array] = None):
         # Get the base main function
         PatternRewriteWalker(AddLLVMMain(test_data)).rewrite_module(op)
         PrintfToLLVM().apply(ctx, op)
@@ -69,15 +69,15 @@ def compile_and_run(build_dir=".", mlir_path="model.mlir"):
     # OUTPUT[sample_id][class_id]=value
     # Return an output list of lists with dimensions [len(output), len(output[0])]
     output = subprocess.run([str(o_path)], capture_output=True)
-    output = output.stdout.decode().strip().split('\n')
-    output = [row for row in output if row.startswith('OUTPUT')]
+    output = output.stdout.decode().strip().split("\n")
+    output = [row for row in output if row.startswith("OUTPUT")]
 
     final_output = []
     for row in output:
-        spl = row.split('=')
+        spl = row.split("=")
         value = float(spl[1])
-        idx0 = int(spl[0].split('[')[1].split(']')[0])
-        idx1 = int(spl[0].split('[')[2].split(']')[0])
+        idx0 = int(spl[0].split("[")[1].split("]")[0])
+        idx1 = int(spl[0].split("[")[2].split("]")[0])
         if len(final_output) <= idx0:
             final_output.append([])
         final_output[idx0].append(value)

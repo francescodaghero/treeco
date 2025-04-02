@@ -21,6 +21,7 @@ from xdsl.irdl import (
     operand_def,
     var_operand_def,
     AnyAttr,
+    traits_def
 )
 from xdsl.ir import Dialect, Operation, SSAValue
 from xdsl.dialects.builtin import (
@@ -200,7 +201,7 @@ class IsLeafConditionOp(IRDLOperation):
     node = operand_def(NodeType)
     # result = result_def(BoolType)
     arguments: VarOperand = var_operand_def(AnyAttr())
-    traits = frozenset([HasParent(scf.While), IsTerminator(), Pure()])
+    traits = traits_def(HasParent(scf.WhileOp), IsTerminator(), Pure())
 
     def __init__(
         self,

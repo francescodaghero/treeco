@@ -3,7 +3,7 @@ from xdsl.dialects.builtin import (
     UnitAttr,
 )
 from xdsl.dialects import func
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     PatternRewriter,
@@ -28,7 +28,7 @@ class CCompatibleFunc(RewritePattern):
 class PrepareLLVMLoweringPass(ModulePass):
     name = "prepare-llvm-lowering"
 
-    def apply(self, ctx: MLContext, op: ModuleOp):
+    def apply(self, ctx: Context, op: ModuleOp):
         PatternRewriteWalker(
             CCompatibleFunc(),
         ).rewrite_module(op)

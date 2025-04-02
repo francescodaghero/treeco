@@ -1,8 +1,7 @@
 from typing import List, Tuple, List
 from treeco.dialects import treeco
 from xdsl.ir import Operation
-from xdsl.dialects import builtin, arith, linalg
-from treeco.dialects.extended import tensor
+from xdsl.dialects import builtin, arith, linalg, tensor
 from xdsl.ir.affine import AffineConstantExpr
 
 AGGREGATE_MODE_VOTE = "VOTE"
@@ -19,14 +18,16 @@ def _aggregate_leaf_tensors_vote(
     Voting: load the correct value from the output given by the idx in the leaf, add one
     """
 
-    zc = arith.Constant.from_int_and_width(0, builtin.IndexType())
-    leaf_idx= tensor.ExtractOp.get(
+    zc = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+    leaf_idx= tensor.ExtractOp(
         tensor=leaf_tensor,
         indices=[zc, zc],
+        result_type=leaf_tensor.type.get_element_type(),
     )
-    sub_output = tensor.ExtractOp.get(
+    sub_output = tensor.ExtractOp(
         tensor=output_tensor,
         indices=[zc, leaf_idx],
+        result_type=output_tensor.type.get_element_type(),
     )
     cast_in = treeco.CastSignOp(
         operand1=sub_output,
@@ -35,10 +36,10 @@ def _aggregate_leaf_tensors_vote(
             signedness=builtin.Signedness.SIGNLESS,
         ),
     )
-    one_const_tens = arith.Constant.from_int_and_width(
+    one_const_tens = arith.ConstantOp.from_int_and_width(
         1, sub_output.results[0].type.width.data
     )
-    added_tensor = arith.Addi(
+    added_tensor = arith.AddiOp(
         operand1=cast_in,
         operand2=one_const_tens,
     )
@@ -47,9 +48,9 @@ def _aggregate_leaf_tensors_vote(
         res=sub_output.results[0].type,
     )
 
-    new_output = tensor.InsertOp.get(
+    new_output = tensor.InsertOp(
         scalar=cast_out,
-        destination=output_tensor,
+        dest=output_tensor,
         indices=[zc, leaf_idx],
     )
 
@@ -75,14 +76,16 @@ def _aggregate_leaf_tensors_sum_single(
     Sum: load the correct value from the output given by the idx in the leaf, add the leaf tensor
     """
 
-    zc = arith.Constant.from_int_and_width(0, builtin.IndexType())
-    leaf_value = tensor.ExtractOp.get(
+    zc = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+    leaf_value = tensor.ExtractOp(
         tensor=leaf_tensor,
         indices=[zc, tree_idx if load_on_tree_idx else zc],
+        result_type=leaf_tensor.type.get_element_type(),
     )
-    sub_output = tensor.ExtractOp.get(
+    sub_output = tensor.ExtractOp(
         tensor=output_tensor,
         indices=[zc, tree_idx if load_on_tree_idx else zc],
+        result_type=output_tensor.type.get_element_type(),
     )
 
     add_ops = list()
@@ -101,7 +104,7 @@ def _aggregate_leaf_tensors_sum_single(
                 signedness=builtin.Signedness.SIGNLESS,
             ),
         )
-        added_tensor = arith.Addi(
+        added_tensor = arith.AddiOp(
             operand1=cast_in_output,
             operand2=cast_in_leaf,
         )
@@ -111,15 +114,15 @@ def _aggregate_leaf_tensors_sum_single(
         )
         add_ops += [cast_in_output, cast_in_leaf, added_tensor, cast_out]
     else:
-        added_tensor = arith.Addf(
+        added_tensor = arith.AddfOp(
             operand1=sub_output,
             operand2=leaf_value,
         )
         add_ops += [added_tensor]
 
-    new_output = tensor.InsertOp.get(
+    new_output = tensor.InsertOp(
         scalar=add_ops[-1],
-        destination=output_tensor,
+        dest=output_tensor,
         indices=[zc, tree_idx if load_on_tree_idx else zc],
     )
 

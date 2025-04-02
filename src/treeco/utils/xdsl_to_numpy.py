@@ -18,17 +18,18 @@ def convert_arrayattr_to_np(array_attr):
         elif hasattr(i, "data"):
             output.append(i.data)
         else:
-            output.append(i.value.data)
+            output.append(i)
     return np.asarray(output)
 
 
 def convert_dense_to_np(dense_attr):
     output = []
-    for i in dense_attr.data:
+    # TODO: Check if this iter_values() is always necessary
+    for i in dense_attr.iter_values():
         if hasattr(i, "data"):
             output.append(i.data)
         else:
-            output.append(i.value.data)
+            output.append(i)
 
     new_dtype = convert_xdsl_to_np_type(dense_attr.type.element_type)
     return np.asarray(output, dtype=new_dtype)

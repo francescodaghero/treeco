@@ -10,7 +10,7 @@ from xdsl.dialects.builtin import (
 )
 
 from xdsl.dialects import func, printf
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.ir import Block, Region
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -90,7 +90,7 @@ class AddEmitC(RewritePattern):
 
         pr = printf.PrintFormatOp("{}\n", output_data)
 
-        r = func.Return()
+        r = func.ReturnOp()
 
         main.attributes["llvm.emit_c_interface"] = UnitAttr()
         rewriter.insert_op(
@@ -103,6 +103,6 @@ class AddEmitC(RewritePattern):
 class AddMainPass(ModulePass):
     name = "add-main-emitc"
 
-    def apply(self, ctx: MLContext, op: ModuleOp):
+    def apply(self, ctx: Context, op: ModuleOp):
         PatternRewriteWalker(AddEmitC()).rewrite_module(op)
         ConvertPrintfToEmitcPass().apply(ctx, op)

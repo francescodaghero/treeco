@@ -1,7 +1,7 @@
 import time
 
 import numpy as np
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects import arith, func, memref
 from xdsl.dialects.builtin import IntAttr, MemRefType, ModuleOp
 from xdsl.passes import ModulePass
@@ -43,13 +43,13 @@ class AllocToGlobal(RewritePattern):
         # Look at the uses, find constants and return them
         for user in op.result.users:
             if isinstance(user, memref.Store) and isinstance(
-                user.operands[0], arith.Constant
+                user.operands[0], arith.ConstantOp
             ):
                 if len(user.operands[0].uses) == 1:
                     ops.append(user)
 
             elif isinstance(user, arith.Store) and isinstance(
-                user.operands[0], arith.Constant
+                user.operands[0], arith.ConstantOp
             ):
                 if len(user.operands[0].uses) == 1:
                     ops.append(user)
@@ -156,7 +156,7 @@ class FixFuncBlocks(RewritePattern):
 
 
 class ConvertMemrefToEmitcPass(ModulePass):
-    def apply(self, ctx: MLContext, op: ModuleOp):
+    def apply(self, ctx: Context, op: ModuleOp):
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [

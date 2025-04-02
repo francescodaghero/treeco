@@ -5,7 +5,7 @@ to MLIR's in-tree IRs.
 
 from xdsl.passes import ModulePass
 from typing import cast
-from xdsl.context import MLContext
+from xdsl.context import Context
 from treeco.dialects import treeco
 from xdsl.dialects import builtin
 
@@ -86,7 +86,7 @@ class RemoveUnusedGlobals(RewritePattern):
 class LowerTreecoPass(ModulePass):
     name = "lower-treeco"
 
-    def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
+    def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         PatternRewriteWalker(LowerCast(), apply_recursively=True).rewrite_module(op)
         # This fixes the while loop not changing type
         # TODO : Understand why this is necessary

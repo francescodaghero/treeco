@@ -104,14 +104,14 @@ def generate_main_function(
     )
 
     # Add a for loop to feed batch-by-batch
-    batch_constant = arith.Constant.from_int_and_width(batch_size, builtin.IndexType())
-    start_const = arith.Constant.from_int_and_width(0, builtin.IndexType())
-    step_const = arith.Constant.from_int_and_width(1, builtin.IndexType())
-    stop_const = arith.Constant.from_int_and_width(
+    batch_constant = arith.ConstantOp.from_int_and_width(batch_size, builtin.IndexType())
+    start_const = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+    step_const = arith.ConstantOp.from_int_and_width(1, builtin.IndexType())
+    stop_const = arith.ConstantOp.from_int_and_width(
         test_data.shape[0], builtin.IndexType()
     )
     loop_block = Block(arg_types=(builtin.IndexType(),))
-    for_op = scf.For(
+    for_op = scf.ForOp(
         lb=start_const,
         step=batch_constant,
         ub=stop_const,
@@ -163,10 +163,10 @@ def generate_main_function(
         )
         scf.Yield()
 
-    out_const = arith.Constant.from_int_and_width(n_outputs, builtin.IndexType())
+    out_const = arith.ConstantOp.from_int_and_width(n_outputs, builtin.IndexType())
     print_block = Block(arg_types=(builtin.IndexType(),))
     print_block_batch = Block(arg_types=(builtin.IndexType(),))
-    batch_printf = scf.For(
+    batch_printf = scf.ForOp(
         lb = start_const,
         step = step_const,
         ub = stop_const,
@@ -175,7 +175,7 @@ def generate_main_function(
     )
 
     with ImplicitBuilder(print_block_batch) as (batch_idx,):
-        cls_printf = scf.For(
+        cls_printf = scf.ForOp(
             lb = start_const,
             step = step_const,
             ub = out_const,
@@ -193,7 +193,7 @@ def generate_main_function(
             scf.Yield()
         scf.Yield()
 
-    r = func.Return()
+    r = func.ReturnOp()
     main_block.add_ops(
         [
             batch_constant,

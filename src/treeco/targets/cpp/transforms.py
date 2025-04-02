@@ -4,14 +4,14 @@ from treeco.lowering.emitc import (
     ConvertPrintfToEmitcPass,
 )
 from xdsl.dialects.builtin import ModuleOp
-from xdsl.context import MLContext
+from xdsl.context import Context
 from treeco.utils import dump_ir
 
 
 def target_transform_and_dump(
     output_path: str,
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
 ) -> ModuleOp:
     ConvertMemrefToEmitcPass().apply(ctx=ctx, op=module_op)
     ConvertArithToEmitcPass().apply(ctx=ctx, op=module_op)

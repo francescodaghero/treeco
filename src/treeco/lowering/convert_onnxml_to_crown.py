@@ -4,7 +4,7 @@ from xdsl.dialects.builtin import (
     i64,
     StringAttr,
 )
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     PatternRewriter,
@@ -63,5 +63,5 @@ class ConvertEnsemble(RewritePattern):
 class ConvertOnnxmlToCrownPass(ModulePass):
     name = "convert-onnxml-to-crown"
 
-    def apply(self, ctx: MLContext, op: ModuleOp) -> None:
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(ConvertEnsemble()).rewrite_module(op)

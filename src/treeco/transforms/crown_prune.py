@@ -1,8 +1,8 @@
-""" 
+"""
 Removes trees from the ensemble. Useful for iterative +  parallelization
 """
 
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -43,7 +43,7 @@ class CrownPruneTrees(RewritePattern):
 class CrownPruneTreesPass(ModulePass):
     def apply(
         self,
-        ctx: MLContext,
+        ctx: Context,
         op: ModuleOp,
         multiple_of_n_trees: int,
     ) -> None:

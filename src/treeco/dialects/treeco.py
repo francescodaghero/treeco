@@ -204,9 +204,8 @@ class TreeEnsembleAttr(ParametrizedAttribute):
     # Getters to return the data with no attributes
     def get_leaf_shape(self) -> int:
         # Extract the data of one tree
-        targets_ids = utils.convert_arrayattr_to_np(self.targets_ids)
-        tree_ids = utils.convert_arrayattr_to_np(self.targets_treeids)
-        targets_nodeids = utils.convert_arrayattr_to_np(self.targets_nodeids)
+        tree_ids = utils.convert_dense_to_np(self.targets_treeids)
+        targets_nodeids = utils.convert_dense_to_np(self.targets_nodeids)
         tgt_node_tree = targets_nodeids[tree_ids == 0]
         _, counts = np.unique(tgt_node_tree, return_counts=True)
         # The count should be identical for each target, so we take element 0
@@ -214,12 +213,12 @@ class TreeEnsembleAttr(ParametrizedAttribute):
 
     def get_n_trees(self) -> int:
         _, counts = np.unique(
-            utils.convert_arrayattr_to_np(self.nodes_treeids), return_counts=True
+            utils.convert_dense_to_np(self.nodes_treeids), return_counts=True
         )
         return len(counts)
 
     def get_n_targets(self) -> int:
-        targets_ids = utils.convert_arrayattr_to_np(self.targets_ids)
+        targets_ids = utils.convert_dense_to_np(self.targets_ids)
         _, counts = np.unique(targets_ids, return_counts=True)
         return len(counts)
 

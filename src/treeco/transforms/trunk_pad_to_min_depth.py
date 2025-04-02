@@ -1,4 +1,4 @@
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -43,7 +43,7 @@ class TrunkPadToMinDepth(RewritePattern):
 class TrunkPadToMinDepthPass(ModulePass):
     def apply(
         self,
-        ctx: MLContext,
+        ctx: Context,
         op: ModuleOp,
         min_depth: Union[int, Literal["auto"]],
     ) -> None:

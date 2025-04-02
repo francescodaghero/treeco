@@ -75,7 +75,7 @@ def find_op_in_operands_chain(op: Operation, op_type: Operation) -> Operation:
                     parent_op, func.FuncOp
                 ):
                     continue
-                elif isinstance(parent_op, scf.For) or isinstance(parent_op, scf.While):
+                elif isinstance(parent_op, scf.ForOp) or isinstance(parent_op, scf.WhileOp):
                     owner = parent_op.operands[operand.index - 1].owner
 
             if owner not in visited:

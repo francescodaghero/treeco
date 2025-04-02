@@ -1,5 +1,5 @@
 import numpy as np
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import IntegerType, MemRefType, ModuleOp, Signedness
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -17,7 +17,10 @@ from .func_legalize import UpdateSignatureFuncOp
 class ConvertToVoting(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: crown.TreeEnsembleOp, rewriter: PatternRewriter):
-        if op.attributes["ensemble"].aggregate_mode.data == Ensemble.AGGREGATE_MODE_VOTE:
+        if (
+            op.attributes["ensemble"].aggregate_mode.data
+            == Ensemble.AGGREGATE_MODE_VOTE
+        ):
             return
 
         ensemble: Ensemble = Ensemble.parse_attr(op.ensemble)
@@ -48,7 +51,7 @@ class ConvertToVoting(RewritePattern):
 
 
 class CrownConvertToVotingClassifierPass(ModulePass):
-    def apply(self, ctx: MLContext, op: ModuleOp) -> None:
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(
             ConvertToVoting(),
         ).rewrite_module(op)

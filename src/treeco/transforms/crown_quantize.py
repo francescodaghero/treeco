@@ -1,4 +1,4 @@
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import IntegerType, MemRefType, ModuleOp, Signedness
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -12,7 +12,6 @@ from xdsl.pattern_rewriter import (
 from treeco.dialects import crown, treeco
 from treeco.model.ensemble import Ensemble
 from treeco.transforms.func_legalize import UpdateSignatureFuncOp
-
 
 
 class QuantizeInput(RewritePattern):
@@ -39,7 +38,7 @@ class QuantizeInput(RewritePattern):
         )
         ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
         # TODO : Check if operand is actually a block argument
-        rewriter.modify_value_type(
+        rewriter.replace_value_with_new_type(
             idata,
             MemRefType(
                 element_type=new_etype,
@@ -76,7 +75,7 @@ class RoundInput(RewritePattern):
         ensemble_attr = treeco.TreeEnsembleAttr(**ensemble.to_attr())
         # TODO : Check if operand is actually a block argument
         # TODO : Make the type conversion depend on the input type, not a static one
-        rewriter.modify_value_type(
+        rewriter.replace_value_with_new_type(
             idata,
             MemRefType(
                 element_type=new_etype,
@@ -115,7 +114,7 @@ class QuantizeLeaves(RewritePattern):
         )
 
         # Regenerate the block argument
-        rewriter.modify_value_type(
+        rewriter.replace_value_with_new_type(
             op.operands[1],
             MemRefType(
                 element_type=new_etype,
@@ -136,7 +135,7 @@ class QuantizeLeaves(RewritePattern):
 class CrownQuantizeInputPass(ModulePass):
     def apply(
         self,
-        ctx: MLContext,
+        ctx: Context,
         op: ModuleOp,
         precision: int,
         min_val: float,
@@ -159,7 +158,7 @@ class CrownQuantizeInputPass(ModulePass):
 class CrownRoundInputPass(ModulePass):
     def apply(
         self,
-        ctx: MLContext,
+        ctx: Context,
         op: ModuleOp,
         precision: int,
     ) -> None:
@@ -180,7 +179,7 @@ class CrownRoundInputPass(ModulePass):
 class CrownQuantizeLeavesPass(ModulePass):
     def apply(
         self,
-        ctx: MLContext,
+        ctx: Context,
         op: ModuleOp,
         precision: int,
     ) -> None:

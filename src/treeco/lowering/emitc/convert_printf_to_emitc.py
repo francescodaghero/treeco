@@ -2,7 +2,7 @@ import re
 from typing import Any
 
 from xdsl.builder import Builder
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects import printf
 from xdsl.dialects.builtin import (
     AnyFloat,
@@ -132,5 +132,5 @@ class PrintfToEmitc(RewritePattern):
 
 
 class ConvertPrintfToEmitcPass(ModulePass):
-    def apply(self, ctx: MLContext, op: ModuleOp) -> None:
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(PrintfToEmitc()).rewrite_module(op)

@@ -8,7 +8,7 @@ for ....:
         tree_visit() <-- This includes the while()
 """
 
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects import arith, scf
 from xdsl.dialects.builtin import IndexType, IntegerAttr, ModuleOp, StringAttr
 from xdsl.ir import Block, Region
@@ -30,7 +30,7 @@ class ForToFor(RewritePattern):
     """
 
     @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: scf.For, rewriter: PatternRewriter):
+    def match_and_rewrite(self, op: scf.ForOp, rewriter: PatternRewriter):
         if len(op.iter_args) != 0:
             return
         if len(op.results) != 0:
@@ -51,7 +51,7 @@ class ForToFor(RewritePattern):
 # TODO: Wait for a better solution, 1) use cf.branch 2) wait for a emitc.While to be implemented
 class WhileToFor(RewritePattern):
     @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: scf.While, rewriter: PatternRewriter):
+    def match_and_rewrite(self, op: scf.WhileOp, rewriter: PatternRewriter):
         # Working only with while - > do
         if not isinstance(op.regions[0].ops.last, scf.Condition):
             return
@@ -132,5 +132,5 @@ class WhileToFor(RewritePattern):
 
 
 class ConvertScfToEmitcPass(ModulePass):
-    def apply(self, ctx: MLContext, op: ModuleOp) -> None:
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(ForToFor()).rewrite_module(op)

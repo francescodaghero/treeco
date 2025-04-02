@@ -1,9 +1,9 @@
-""" 
+"""
 Pad the trees to ensure all leaves are at a minimum depth or directly make the trees
 perfect.
 """
 
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -43,7 +43,7 @@ class CrownPadTreesPerfect(RewritePattern):
 class CrownPadTreesPerfectPass(ModulePass):
     def apply(
         self,
-        ctx: MLContext,
+        ctx: Context,
         op: ModuleOp,
     ) -> None:
         PatternRewriteWalker(

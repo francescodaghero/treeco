@@ -4,7 +4,7 @@ However, this requires an additional cast when they are loaded from memory
 """
 
 import numpy as np
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.dialects import arith, builtin, memref
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -18,14 +18,14 @@ from treeco.utils.numpy_to_xdsl import convert_np_to_tensor
 from treeco.utils.xdsl_to_numpy import convert_dense_to_np
 
 
-def quantize_global_op(op: memref.Global):
+def quantize_global_op(op: memref.GlobalOp):
     shape = op.type.get_shape()
     value = op.initial_value
     np_arr: np.array = convert_dense_to_np(value)
     np_arr = np_arr.astype(np.min_scalar_type(np_arr.max())).reshape(shape)
     new_value = convert_np_to_tensor(np_arr, is_signless=True)
 
-    return memref.Global.get(
+    return memref.GlobalOp.get(
         sym_name=op.sym_name,
         sym_type=builtin.MemRefType(
             element_type=new_value.type.element_type,
@@ -42,7 +42,7 @@ def quantize_global_op(op: memref.Global):
 
 def find_global_op_by_name(module_op, name):
     for op in module_op.walk():
-        if isinstance(op, memref.Global) and op.sym_name == name:
+        if isinstance(op, memref.GlobalOp) and op.sym_name == name:
             return op
 
     raise LookupError(f"Global with name {name} not found in module")
@@ -52,14 +52,14 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(
         self,
-        op: memref.GetGlobal,
+        op: memref.GetGlobalOp,
         rewriter: PatternRewriter,
     ):
         if not isinstance(op.memref.type.get_element_type(), builtin.IndexType):
             return
 
         # Quantize the global op
-        global_op: memref.Global = find_global_op_by_name(
+        global_op: memref.GlobalOp = find_global_op_by_name(
             op.get_toplevel_object(), op.name_.root_reference
         )
         # Only if constant, so not store along the way
@@ -69,7 +69,7 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
         rewriter.replace_op(global_op, quant_global, [])
 
         # Replace the memref
-        new_op = memref.GetGlobal(name=op.name_, return_type=quant_global.type)
+        new_op = memref.GetGlobalOp(name=op.name_, return_type=quant_global.type)
         rewriter.replace_matched_op(
             new_op,
             [new_op.memref],
@@ -96,10 +96,10 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
                 else:
                     new_results.append(res_type)
 
-            old_operands_flattened : list = list(op_use.operands)
+            old_operands_flattened: list = list(op_use.operands)
             indices = []
             start_idx = 0
-            if hasattr(op_use, "indices") and len(op_use.indices)>1:
+            if hasattr(op_use, "indices") and len(op_use.indices) > 1:
                 copia = list(old_operands_flattened)
                 for idx, old_op in enumerate(copia):
                     if old_op in op_use.indices:
@@ -107,8 +107,12 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
                         indices.append(old_op)
                         if len(indices) == 1:
                             start_idx = idx
-                old_operands_flattened = old_operands_flattened[:start_idx] + [indices] + old_operands_flattened[start_idx:]
-                
+                old_operands_flattened = (
+                    old_operands_flattened[:start_idx]
+                    + [indices]
+                    + old_operands_flattened[start_idx:]
+                )
+
             new_use = type(op_use)(
                 operands=old_operands_flattened,
                 result_types=new_results,
@@ -133,6 +137,6 @@ class MemrefQuantizeGlobalIndex(RewritePattern):
 class MemrefQuantizeGlobalIndexPass(ModulePass):
     name = "memref-quantize-global-index-pass"
 
-    def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
+    def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         PatternRewriteWalker(MemrefQuantizeGlobalIndex()).rewrite_module(op)
         op.verify()

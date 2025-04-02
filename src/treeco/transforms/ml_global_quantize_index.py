@@ -1,11 +1,11 @@
-""" 
-Feels like an issue when bufferizing, so for now the compression is performed 
+"""
+Feels like an issue when bufferizing, so for now the compression is performed
 after bufferization.
 """
 
 import numpy as np
-from xdsl.context import MLContext
-from xdsl.dialects import arith, builtin, memref
+from xdsl.context import Context
+from xdsl.dialects import arith, builtin, memref, tensor
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     PatternRewriter,
@@ -14,7 +14,7 @@ from xdsl.pattern_rewriter import (
     op_type_rewrite_pattern,
 )
 
-from treeco.dialects.extended import ml_program, tensor
+from treeco.dialects.extended import ml_program
 from treeco.utils.numpy_to_xdsl import convert_np_to_tensor
 from treeco.utils.xdsl_to_numpy import convert_dense_to_np
 
@@ -74,6 +74,6 @@ class MlGlobalQuantizeIndex(RewritePattern):
 class MlGlobalQuantizeIndexPass(ModulePass):
     name = "ml-global-quantize-index-pass"
 
-    def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
+    def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         PatternRewriteWalker(MlGlobalQuantizeIndex()).rewrite_module(op)
         op.verify()

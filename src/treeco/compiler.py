@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal, Union, Optional, Mapping, Any, Tuple
 
-from xdsl.context import MLContext
+from xdsl.context import Context as Context
 from xdsl.dialects import (
     arith,
     builtin,
@@ -13,11 +13,13 @@ from xdsl.dialects import (
     scf,
     linalg,
     affine,
+    tensor,
+    bufferization,
 )
 from xdsl.dialects.builtin import ModuleOp
 
 from treeco.dialects import crown, onnxml, treeco, trunk
-from treeco.dialects.extended import bufferization, ml_program, tensor
+from treeco.dialects.extended import ml_program
 from treeco.frontend.ir_gen import ir_gen
 from treeco.frontend.parser import Parser
 from treeco.lowering import *
@@ -25,13 +27,13 @@ from treeco.lowering.convert_crown_to_trunk import ConvertCrownToTrunkIterativeP
 from treeco.transforms import *
 
 
-def context() -> MLContext:
+def context() -> Context:
     """
     Just loading a bunch of dialects, not sure this is the best way to handle
     the context
     #TODO : Investigate further, should this be split in a context per transform function?
     """
-    ctx = MLContext()
+    ctx = Context()
     ctx.load_dialect(treeco.Treeco)
     ctx.load_dialect(bufferization.Bufferization)
     ctx.load_dialect(trunk.Trunk)
@@ -75,7 +77,7 @@ def parse_ensemble(onnx_path: str) -> Mapping[str, Any]:
 
 def generate_ir(
     parsed_model: Mapping[str, Any], batch_size: int = 1
-) -> Tuple[ModuleOp, MLContext]:
+) -> Tuple[ModuleOp, Context]:
     """
     Convert the parsed model to MLIR
 
@@ -90,7 +92,7 @@ def generate_ir(
     -------
     ModuleOp
         The ensemble IR using the ONNXML dialect
-    MLContext
+    Context
         The context for lowering the program
     """
     ctx = context()
@@ -100,7 +102,7 @@ def generate_ir(
 
 def crown_transform(
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
     # Convert to voting classifier
     convert_to_voting: bool = False,
     # Ensemble pruning parameters
@@ -126,7 +128,7 @@ def crown_transform(
     ----------
     module_op : ModuleOp
         The program IR
-    ctx : MLContext
+    ctx : Context
         The context
     convert_to_voting : bool, optional
         Flag to enable logits -> vote conversion (and related optimizations), by default False
@@ -187,7 +189,7 @@ def crown_transform(
 
 def trunk_transform(
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
     tree_algorithm: Literal["iterative"] = "iterative",
     pad_to_min_depth: Union[int, Literal["auto"], False] = False,
 ) -> ModuleOp:
@@ -200,7 +202,7 @@ def trunk_transform(
     ----------
     module_op : ModuleOp
         The program IR
-    ctx : MLContext
+    ctx : Context
         The context
     tree_algorithm : Literal[&quot;iterative&quot;], optional
         The algorithm to visit the tree, by default "iterative"
@@ -225,7 +227,7 @@ def trunk_transform(
 
 def root_transform(
     module_op: ModuleOp,
-    ctx: MLContext,
+    ctx: Context,
     bufferize: bool = True,
     quantize_index_arrays=True,
 ):

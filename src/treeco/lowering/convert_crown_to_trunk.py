@@ -5,14 +5,13 @@ we perform multiple to lower piece-by-piece the operation.
 """
 
 from xdsl.passes import ModulePass
-from xdsl.context import MLContext
+from xdsl.context import Context
 from xdsl.builder import Builder
 from typing import Any
 from treeco.dialects import crown, trunk, treeco
 from treeco.utils import find_op_in_operands_chain, find_operation_in_module
 from treeco.model.ensemble import Ensemble
-from xdsl.dialects import builtin, arith, scf, func
-from treeco.dialects.extended import tensor, bufferization
+from xdsl.dialects import builtin, arith, scf, func, tensor, bufferization
 from treeco.utils import I64_MIN
 from xdsl.pattern_rewriter import (
     PatternRewriter,
@@ -62,7 +61,7 @@ class ConvertIterativeEnsembleToPerfectIterativeMaybe(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(
         self,
-        op: scf.While,
+        op: scf.WhileOp,
         rewriter: PatternRewriter,
     ):
         # Find if the op is in an "inference" function
@@ -96,11 +95,11 @@ class ConvertIterativeEnsembleToPerfectIterativeMaybe(RewritePattern):
             return
 
         # We can replace the whole loop, as it's a perfect iterative
-        zc = arith.Constant.from_int_and_width(0, builtin.IndexType())
-        oc = arith.Constant.from_int_and_width(1, builtin.IndexType())
+        zc = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+        oc = arith.ConstantOp.from_int_and_width(1, builtin.IndexType())
         # This part depends on the ensemble, does it have the same depth for all trees?
         if ensemble_data.has_constant_depth():
-            ub = arith.Constant.from_int_and_width(
+            ub = arith.ConstantOp.from_int_and_width(
                 ensemble_data.max_depth - 1, builtin.IndexType()
             )
         else:
@@ -112,9 +111,9 @@ class ConvertIterativeEnsembleToPerfectIterativeMaybe(RewritePattern):
             next_node = trunk.VisitNextNodeOp(
                 tree=visit_op.tree, node=node, data_in=visit_op.data_in, root_node=op.operands[0]
             )
-            scf.Yield(next_node)
+            scf.YieldOp(next_node)
 
-        for_loop = scf.For(
+        for_loop = scf.ForOp(
             lb=zc, step=oc, ub=ub, iter_args=[op.operands[0]], body=iter_block
         )
         rewriter.replace_matched_op([zc, oc, ub, for_loop], [for_loop.results[0]])
@@ -174,12 +173,12 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
         )
 
         # Constants for loops
-        zero_const = arith.Constant.from_int_and_width(0, builtin.IndexType())
-        one_const = arith.Constant.from_int_and_width(1, builtin.IndexType())
-        batch_size_const = arith.Constant.from_int_and_width(
+        zero_const = arith.ConstantOp.from_int_and_width(0, builtin.IndexType())
+        one_const = arith.ConstantOp.from_int_and_width(1, builtin.IndexType())
+        batch_size_const = arith.ConstantOp.from_int_and_width(
             batch_size, builtin.IndexType()
         )
-        n_trees_const = arith.Constant.from_int_and_width(n_trees, builtin.IndexType())
+        n_trees_const = arith.ConstantOp.from_int_and_width(n_trees, builtin.IndexType())
 
         # An all zero tensor to store the output
         @Builder.implicit_region((builtin.IndexType(), output_type))
@@ -236,7 +235,7 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
                 def before_region(args_before: tuple[Any, ...]):
                     (node,) = args_before
                     is_leaf = trunk.IsLeafOp(tree_element, node)
-                    scf.Condition(is_leaf, node)
+                    scf.ConditionOp(is_leaf, node)
 
                 @Builder.implicit_region((node_type,))
                 def after_region(args_after: tuple[Any, ...]):
@@ -244,9 +243,9 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
                     next_node = trunk.VisitNextNodeOp(
                         tree=tree_element, node=node, data_in=input_slice
                     )
-                    scf.Yield(next_node)
+                    scf.YieldOp(next_node)
 
-                while_loop = scf.While(
+                while_loop = scf.WhileOp(
                     [root_node], [node_type], before_region, after_region
                 )
                 leaf_op = trunk.GetLeafOp(tree=tree_element, node=while_loop)
@@ -258,9 +257,9 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
                     tensor_out=output_tensor_tree,
                 )
 
-                scf.Yield(new_output_tensor_tree)
+                scf.YieldOp(new_output_tensor_tree)
 
-            tree_for = scf.For(
+            tree_for = scf.ForOp(
                 lb=zero_const,
                 ub=n_trees_const,
                 step=one_const,
@@ -278,9 +277,9 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
                 strides=[],
                 result_type=output_type,
             )
-            scf.Yield(output_tensor_iter_inputs)
+            scf.YieldOp(output_tensor_iter_inputs)
 
-        input_for = scf.For(
+        input_for = scf.ForOp(
             lb=zero_const,
             ub=batch_size_const,
             step=one_const,
@@ -288,7 +287,7 @@ class LowerEnsembleToIterativeTraverse(RewritePattern):
             body=input_loop_body,
         )
         materialize = bufferization.MaterializeInDestinationOp(
-            source=input_for, dest=output_buffer, writable=builtin.UnitAttr()
+            operands=[input_for, output_buffer], result_types=[None], properties={"writable": builtin.UnitAttr()}
         )
         rewriter.replace_matched_op(
             [
@@ -354,7 +353,7 @@ class LowerEnsembleAggregateMode(RewritePattern):
 class ConvertCrownToTrunkIterativePass(ModulePass):
     name = "lower-crown-to-trunk"
 
-    def apply(self, ctx: MLContext, op: builtin.ModuleOp) -> None:
+    def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         PatternRewriteWalker(LowerPostTransform()).rewrite_module(op)
         PatternRewriteWalker(LowerEnsembleToIterativeTraverse()).rewrite_module(op)
         PatternRewriteWalker(

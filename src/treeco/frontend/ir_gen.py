@@ -108,7 +108,7 @@ def ir_gen(parsed_onnx: dict, batch_size=1) -> ModuleOp:
         )
 
     # Add the return statement to the function block
-    func_block.add_ops([ensemble_op, func.Return()])
+    func_block.add_ops([ensemble_op, func.ReturnOp()])
 
     # Generate the ModuleOp
     module = ModuleOp([function])
